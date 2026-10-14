@@ -1,0 +1,937 @@
+From f333c366bb41e7466ad0f4df0744fd2367a53788 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 14 Oct 2026 20:07:18 +0800
+Subject: [PATCH 1/2] Protected media: drop the old source while the new one is
+ fetched
+
+A sound given a protected address (narration under /generated-audio/,
+fetched with the player's token) kept its previous source until the
+fetched copy arrived. The narration player calls play() straight after
+setting src, so Read aloud replayed the previous passage, and when the
+new copy landed the load it started paused the element: nothing played,
+while the page still believed it was playing and queued every later
+passage behind it. A browser drops the old source the moment src is
+set; forgetSource() does the same, so play() waits for the copy and
+starts it when it arrives. Reproduced and checked in Chromium.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BsPQjebYqr1zAAhxWA3F3b
+---
+ src/renderer/game/runtime.ts | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/src/renderer/game/runtime.ts b/src/renderer/game/runtime.ts
+index 47b8d0a..e809928 100644
+--- a/src/renderer/game/runtime.ts
++++ b/src/renderer/game/runtime.ts
+@@ -252,6 +252,19 @@ function resolveMedia(
+   return null;
+ }
+ 
++// A sound or video given a protected address keeps its old source until the
++// fetched copy arrives, and a page that calls play() straight after setting
++// src (the narration player does) would replay the old one: then the new
++// copy lands, the load it starts pauses the element and nothing plays again,
++// while the page still believes it is playing. A browser drops the old
++// source the moment src is set; this does the same, so play() waits for the
++// copy and starts it when it arrives.
++function forgetSource(element: HTMLMediaElement): void {
++  if (!element.hasAttribute("src") && !element.currentSrc) return;
++  element.removeAttribute("src");
++  element.load();
++}
++
+ // new Audio(url), new Image() and element.src = "/..." never touch an
+ // attribute the observer would see before the load starts, so the src
+ // setters are wrapped: a public path is redirected at once, a protected
+@@ -300,7 +313,11 @@ function patchMediaSetters(): void {
+             if (this.getAttribute("data-odm-src") === raw) reportRefused(this);
+           },
+         );
+-        if (direct) nativeSet.call(this, direct);
++        if (direct) {
++          nativeSet.call(this, direct);
++        } else if (this instanceof HTMLMediaElement) {
++          forgetSource(this);
++        }
+       },
+     });
+   }
+-- 
+2.43.0
+
+
+From 4167cfb012970b5bd3204d4c4100616ffee08748 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 14 Oct 2026 20:07:18 +0800
+Subject: [PATCH 2/2] Android: offer the phone's text-to-speech to the table as
+ window.odmSpeech
+
+The mirror of the dictation bridge. SpeechPlugin wraps Android's
+TextToSpeech (media stream, the engine's installed voices, rate, pitch,
+volume) and speaks a passage as one take of chunks, answering when the
+last one is spoken or when stop() or a newer take cuts it short.
+speech-core.ts splits long passages under the engine's input limit,
+names the voices, and installs window.odmSpeech only when the phone has
+a working engine. The server's screens read passages with it where the
+server has no narration, or when the player asks for the phone's voice
+(server src/lib/native-speech.ts). The manifest declares the
+TTS_SERVICE query, without which Android 11+ never connects the engine.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BsPQjebYqr1zAAhxWA3F3b
+---
+ .../android/app/src/main/AndroidManifest.xml  |   7 +-
+ .../opendungeonmaster/app/MainActivity.java   |   8 +-
+ .../opendungeonmaster/app/SpeechPlugin.java   | 350 ++++++++++++++++++
+ mobile/src/bridge.ts                          |   5 +
+ mobile/src/global.d.ts                        |   4 +
+ mobile/src/speech-core.ts                     | 216 +++++++++++
+ mobile/src/speech.ts                          |  11 +
+ mobile/tests/speech.test.ts                   | 148 ++++++++
+ 8 files changed, 745 insertions(+), 4 deletions(-)
+ create mode 100644 mobile/android/app/src/main/java/com/opendungeonmaster/app/SpeechPlugin.java
+ create mode 100644 mobile/src/speech-core.ts
+ create mode 100644 mobile/src/speech.ts
+ create mode 100644 mobile/tests/speech.test.ts
+
+diff --git a/mobile/android/app/src/main/AndroidManifest.xml b/mobile/android/app/src/main/AndroidManifest.xml
+index 440ca33..f9136d2 100644
+--- a/mobile/android/app/src/main/AndroidManifest.xml
++++ b/mobile/android/app/src/main/AndroidManifest.xml
+@@ -101,11 +101,16 @@
+     <uses-feature android:name="android.hardware.camera" android:required="false" />
+     <!-- Android 11+ hides other apps' services unless declared: without this
+          the phone's speech recognizer (a RecognitionService in another
+-         package) reads as missing and dictation never offers it. -->
++         package) reads as missing and dictation never offers it, and the
++         text-to-speech engine that reads passages aloud (SpeechPlugin)
++         never connects. -->
+     <queries>
+         <intent>
+             <action android:name="android.speech.RecognitionService" />
+         </intent>
++        <intent>
++            <action android:name="android.intent.action.TTS_SERVICE" />
++        </intent>
+     </queries>
+     <!-- Pixels dice pairing. The BLE plugin's manifest brings the Bluetooth
+          permissions; this override only marks scanning as never used for
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java
+index 89e762c..017b55b 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java
+@@ -24,12 +24,14 @@ public class MainActivity extends BridgeActivity {
+         // navigationBarColor theme attributes Android 15 deprecated, and it
+         // has to run before the bridge sets the content view.
+         EdgeToEdge.enable(this, SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT));
+-        // The phone-hosted world plugin, the streaming download plugin and
+-        // the speech recognizer live in this app rather than a package, so
+-        // they register here before the bridge loads the page.
++        // The phone-hosted world plugin, the streaming download plugin, the
++        // speech recognizer and the phone's voice live in this app rather
++        // than a package, so they register here before the bridge loads the
++        // page.
+         registerPlugin(LocalWorldPlugin.class);
+         registerPlugin(DownloadPlugin.class);
+         registerPlugin(DictationPlugin.class);
++        registerPlugin(SpeechPlugin.class);
+         registerPlugin(SecretStorePlugin.class);
+         super.onCreate(savedInstanceState);
+     }
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/SpeechPlugin.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/SpeechPlugin.java
+new file mode 100644
+index 0000000..05dd41f
+--- /dev/null
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/SpeechPlugin.java
+@@ -0,0 +1,350 @@
++package com.opendungeonmaster.app;
++
++import android.media.AudioAttributes;
++import android.os.Bundle;
++import android.os.Handler;
++import android.os.Looper;
++import android.speech.tts.TextToSpeech;
++import android.speech.tts.UtteranceProgressListener;
++import android.speech.tts.Voice;
++import com.getcapacitor.JSArray;
++import com.getcapacitor.JSObject;
++import com.getcapacitor.Plugin;
++import com.getcapacitor.PluginCall;
++import com.getcapacitor.PluginMethod;
++import com.getcapacitor.annotation.CapacitorPlugin;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Locale;
++import java.util.Set;
++import org.json.JSONException;
++
++/**
++ * The phone's own text-to-speech engine, for reading DM passages aloud when
++ * the server has no narration of its own (above all the world this phone
++ * hosts), or when the player would rather hear the phone. Free, offline
++ * with the engine's downloaded voices, and no audio file to fetch.
++ * mobile/src/speech-core.ts turns it into window.odmSpeech.
++ *
++ * available() -> { available }   waits for the engine to start
++ * speak({ chunks, voice?, rate?, pitch?, volume? }) -> { finished }
++ *     one take: the chunks in order. finished is false when stop() or a
++ *     newer take cut it short. Rejects when the engine fails.
++ * stop()
++ * voices() -> { voices: [{ id, language, local }] }
++ *
++ * Every piece of state lives on the main thread; the engine's progress
++ * callbacks arrive on a binder thread and are posted there.
++ */
++@CapacitorPlugin(name = "OdmSpeech")
++public class SpeechPlugin extends Plugin {
++
++    private static final int STARTING = 0;
++    private static final int READY = 1;
++    private static final int FAILED = -1;
++
++    private final Handler main = new Handler(Looper.getMainLooper());
++    private TextToSpeech engine;
++    private int state = STARTING;
++    // available() calls that arrived while the engine was starting.
++    private final List<PluginCall> waiting = new ArrayList<>();
++    // The take being spoken: its call, the prefix every chunk's utterance id
++    // starts with, and the id of its last chunk.
++    private PluginCall speaking;
++    private String takePrefix = "";
++    private String lastChunk = "";
++    private int takes = 0;
++
++    @Override
++    public void load() {
++        main.post(this::startEngine);
++    }
++
++    private void startEngine() {
++        if (engine != null) {
++            return;
++        }
++        state = STARTING;
++        engine = new TextToSpeech(getContext(), status -> main.post(() -> engineStarted(status)));
++    }
++
++    private void engineStarted(int status) {
++        if (engine == null) {
++            return;
++        }
++        state = status == TextToSpeech.SUCCESS ? READY : FAILED;
++        if (state == READY) {
++            // Narration is media: it follows the media volume and ducks under
++            // a call, rather than riding the accessibility or alarm streams.
++            engine.setAudioAttributes(
++                new AudioAttributes.Builder()
++                    .setUsage(AudioAttributes.USAGE_MEDIA)
++                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
++                    .build()
++            );
++            engine.setOnUtteranceProgressListener(progress);
++        }
++        for (PluginCall call : waiting) {
++            answerAvailable(call);
++        }
++        waiting.clear();
++    }
++
++    private void answerAvailable(PluginCall call) {
++        JSObject result = new JSObject();
++        result.put("available", state == READY);
++        call.resolve(result);
++    }
++
++    @PluginMethod
++    public void available(PluginCall call) {
++        main.post(() -> {
++            if (engine == null) {
++                startEngine();
++            }
++            if (state == STARTING) {
++                waiting.add(call);
++            } else {
++                answerAvailable(call);
++            }
++        });
++    }
++
++    @PluginMethod
++    public void speak(PluginCall call) {
++        JSArray given = call.getArray("chunks");
++        List<String> chunks = new ArrayList<>();
++        try {
++            if (given != null) {
++                for (Object chunk : given.toList()) {
++                    String text = chunk == null ? "" : chunk.toString().trim();
++                    if (!text.isEmpty()) {
++                        chunks.add(text);
++                    }
++                }
++            }
++        } catch (JSONException error) {
++            call.reject("The passage could not be read.");
++            return;
++        }
++        String voice = call.getString("voice");
++        Float rate = call.getFloat("rate");
++        Float pitch = call.getFloat("pitch");
++        Float volume = call.getFloat("volume");
++        main.post(() -> begin(call, chunks, voice, rate, pitch, volume));
++    }
++
++    private void begin(PluginCall call, List<String> chunks, String voice, Float rate, Float pitch, Float volume) {
++        if (engine == null || state != READY) {
++            call.reject("This phone's text-to-speech is not ready.");
++            return;
++        }
++        // A newer take always wins: the one before it ends as stopped.
++        endTake(false);
++        if (chunks.isEmpty()) {
++            JSObject result = new JSObject();
++            result.put("finished", true);
++            call.resolve(result);
++            return;
++        }
++        chooseVoice(voice);
++        engine.setSpeechRate(rate == null ? 1f : rate);
++        engine.setPitch(pitch == null ? 1f : pitch);
++        Bundle params = new Bundle();
++        if (volume != null) {
++            params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, Math.max(0f, Math.min(1f, volume)));
++        }
++        takes += 1;
++        String prefix = "odm-" + takes + "-";
++        speaking = call;
++        takePrefix = prefix;
++        lastChunk = prefix + (chunks.size() - 1);
++        for (int index = 0; index < chunks.size(); index += 1) {
++            int queued = engine.speak(
++                chunks.get(index),
++                index == 0 ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD,
++                params,
++                prefix + index
++            );
++            if (queued == TextToSpeech.ERROR) {
++                fail("This phone's voice refused the passage.");
++                return;
++            }
++        }
++    }
++
++    // The engine's default voice unless a voice it has (and has installed)
++    // was asked for.
++    private void chooseVoice(String name) {
++        Voice chosen = null;
++        if (name != null && !name.trim().isEmpty()) {
++            Set<Voice> voices = safeVoices();
++            for (Voice voice : voices) {
++                if (voice.getName().equals(name) && installed(voice)) {
++                    chosen = voice;
++                    break;
++                }
++            }
++        }
++        if (chosen == null) {
++            chosen = engine.getDefaultVoice();
++        }
++        if (chosen != null) {
++            engine.setVoice(chosen);
++        }
++    }
++
++    private Set<Voice> safeVoices() {
++        try {
++            Set<Voice> voices = engine == null ? null : engine.getVoices();
++            return voices == null ? java.util.Collections.emptySet() : voices;
++        } catch (RuntimeException error) {
++            // Some engines throw here while they update their voice data.
++            return java.util.Collections.emptySet();
++        }
++    }
++
++    private static boolean installed(Voice voice) {
++        Set<String> features = voice.getFeatures();
++        return features == null || !features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED);
++    }
++
++    @PluginMethod
++    public void stop(PluginCall call) {
++        main.post(() -> {
++            endTake(false);
++            if (engine != null) {
++                engine.stop();
++            }
++            call.resolve();
++        });
++    }
++
++    @PluginMethod
++    public void voices(PluginCall call) {
++        main.post(() -> {
++            JSArray list = new JSArray();
++            if (state == READY) {
++                for (Voice voice : safeVoices()) {
++                    if (!installed(voice)) {
++                        continue;
++                    }
++                    Locale locale = voice.getLocale();
++                    JSObject entry = new JSObject();
++                    entry.put("id", voice.getName());
++                    entry.put("language", locale == null ? "" : locale.toLanguageTag());
++                    entry.put("local", !voice.isNetworkConnectionRequired());
++                    list.put(entry);
++                }
++            }
++            JSObject result = new JSObject();
++            result.put("voices", list);
++            call.resolve(result);
++        });
++    }
++
++    // The take in progress, if any, is answered: spoken to the end or not.
++    private void endTake(boolean finished) {
++        PluginCall call = speaking;
++        speaking = null;
++        takePrefix = "";
++        lastChunk = "";
++        if (call != null) {
++            JSObject result = new JSObject();
++            result.put("finished", finished);
++            call.resolve(result);
++        }
++    }
++
++    private void fail(String message) {
++        PluginCall call = speaking;
++        speaking = null;
++        takePrefix = "";
++        lastChunk = "";
++        if (engine != null) {
++            engine.stop();
++        }
++        if (call != null) {
++            call.reject(message);
++        }
++    }
++
++    private boolean ofThisTake(String utteranceId) {
++        return speaking != null && utteranceId != null && !takePrefix.isEmpty() && utteranceId.startsWith(takePrefix);
++    }
++
++    private final UtteranceProgressListener progress = new UtteranceProgressListener() {
++        @Override
++        public void onStart(String utteranceId) {}
++
++        @Override
++        public void onDone(String utteranceId) {
++            main.post(() -> {
++                if (ofThisTake(utteranceId) && utteranceId.equals(lastChunk)) {
++                    endTake(true);
++                }
++            });
++        }
++
++        @Override
++        @SuppressWarnings("deprecation")
++        public void onError(String utteranceId) {
++            onError(utteranceId, TextToSpeech.ERROR);
++        }
++
++        @Override
++        public void onError(String utteranceId, int errorCode) {
++            main.post(() -> {
++                if (ofThisTake(utteranceId)) {
++                    fail(describe(errorCode));
++                }
++            });
++        }
++
++        // Flushed by a newer take or by stop(): only a take still in hand is
++        // answered, as stopped. The engine says this for the chunk playing and
++        // for each one still queued, and the first answer is the one kept.
++        @Override
++        public void onStop(String utteranceId, boolean interrupted) {
++            main.post(() -> {
++                if (ofThisTake(utteranceId)) {
++                    endTake(false);
++                }
++            });
++        }
++    };
++
++    private static String describe(int errorCode) {
++        switch (errorCode) {
++            case TextToSpeech.ERROR_NETWORK:
++            case TextToSpeech.ERROR_NETWORK_TIMEOUT:
++                return "This phone's voice needs the internet and could not reach it. Pick a voice that works offline in Settings.";
++            case TextToSpeech.ERROR_NOT_INSTALLED_YET:
++                return "This phone's voice is still downloading. Try again in a moment.";
++            case TextToSpeech.ERROR_OUTPUT:
++                return "This phone could not play its voice.";
++            default:
++                return "This phone's voice could not read that passage.";
++        }
++    }
++
++    @Override
++    protected void handleOnDestroy() {
++        main.post(() -> {
++            endTake(false);
++            for (PluginCall call : waiting) {
++                JSObject result = new JSObject();
++                result.put("available", false);
++                call.resolve(result);
++            }
++            waiting.clear();
++            if (engine != null) {
++                engine.stop();
++                engine.shutdown();
++                engine = null;
++            }
++            state = FAILED;
++        });
++        super.handleOnDestroy();
++    }
++}
+diff --git a/mobile/src/bridge.ts b/mobile/src/bridge.ts
+index 49030aa..6dbbfae 100644
+--- a/mobile/src/bridge.ts
++++ b/mobile/src/bridge.ts
+@@ -17,6 +17,7 @@ import { createBleRelay } from "./ble-relay";
+ import { createDownloadRelay } from "./download-relay";
+ import { createDownloadShim, DOWNLOAD_URL_MESSAGE, noticeText } from "./download-shim-core";
+ import { offerNativeDictation } from "./dictation";
++import { offerNativeSpeech } from "./speech";
+ import { createAndroidHomeFeed, HOME_CACHE_KEY } from "./home-feed";
+ import { fetchCover, fetchIncoming, OdmDownload, renameIncoming, sweepCovers } from "./native-download";
+ import { createShortCache, createTransitionDebounce } from "./throttle";
+@@ -1837,6 +1838,10 @@ window.odm = bridge;
+ // speech-to-text (the world this phone hosts, above all).
+ offerNativeDictation();
+ 
++// The phone's own voice, for reading passages aloud on a server with no
++// narration (or one the player would rather not hear).
++offerNativeSpeech();
++
+ // Closing the server webview lands back on the manager; closing it in the
+ // middle of a Discord sign-in is a cancel.
+ void InAppBrowser.addListener("closeEvent", () => {
+diff --git a/mobile/src/global.d.ts b/mobile/src/global.d.ts
+index d36f61d..9cefa90 100644
+--- a/mobile/src/global.d.ts
++++ b/mobile/src/global.d.ts
+@@ -1,5 +1,6 @@
+ import type { OdmBridge } from "../../src/shared/types";
+ import type { NativeDictation } from "./dictation-core";
++import type { NativeSpeech } from "./speech-core";
+ 
+ declare global {
+   interface Window {
+@@ -13,6 +14,9 @@ declare global {
+     // The phone's speech recognizer, offered to the game's dictation
+     // button (src/dictation-core.ts).
+     odmDictation?: NativeDictation;
++    // The phone's text-to-speech, offered to the table's narration
++    // (src/speech-core.ts).
++    odmSpeech?: NativeSpeech;
+   }
+ }
+ 
+diff --git a/mobile/src/speech-core.ts b/mobile/src/speech-core.ts
+new file mode 100644
+index 0000000..6505efb
+--- /dev/null
++++ b/mobile/src/speech-core.ts
+@@ -0,0 +1,216 @@
++// The phone's own text-to-speech, offered to the game's screens as
++// window.odmSpeech (the contract lives in the server's
++// src/lib/native-speech.ts). The table reads DM passages with it when the
++// server it plays on has no narration of its own, which is the case for the
++// world this phone hosts unless an admin pays for a speech service, or when
++// the player asks for the phone's voice in Settings.
++//
++// Kept free of Capacitor so the tests can drive it with a fake plugin;
++// speech.ts wires the real one (android/.../SpeechPlugin.java).
++
++export interface SpeechPluginVoice {
++  id: string;
++  language: string;
++  local: boolean;
++}
++
++export interface SpeechPlugin {
++  available(): Promise<{ available: boolean }>;
++  // Speaks the chunks in order as one take. Resolves when the last one has
++  // been spoken (finished: true) or when stop() or a newer take cut it short
++  // (finished: false); rejects when the engine fails.
++  speak(options: { chunks: string[]; voice?: string; rate?: number; pitch?: number; volume?: number }): Promise<{ finished: boolean }>;
++  stop(): Promise<void>;
++  voices(): Promise<{ voices: SpeechPluginVoice[] }>;
++}
++
++// The shapes window.odmSpeech takes, repeated here so the shell does not
++// import server code.
++export interface NativeSpeechVoice {
++  id: string;
++  name: string;
++  language: string;
++  local: boolean;
++}
++
++export interface NativeSpeakOptions {
++  voice?: string;
++  rate?: number;
++  pitch?: number;
++  volume?: number;
++}
++
++export interface NativeSpeech {
++  speak(text: string, options?: NativeSpeakOptions): Promise<"done" | "stopped">;
++  stop(): Promise<void>;
++  voices(): Promise<NativeSpeechVoice[]>;
++}
++
++// The page listens for this to notice a voice that arrived after it drew
++// (NATIVE_SPEECH_EVENT in the server).
++export const SPEECH_READY_EVENT = "odm-speech";
++
++// Android's engines take at most TextToSpeech.getMaxSpeechInputLength()
++// characters per utterance, 4000 on every phone we know of; a long passage
++// is handed over in pieces well under that.
++export const MAX_CHUNK = 3000;
++
++function reason(error: unknown, fallback: string): string {
++  if (error && typeof error === "object" && "message" in error) {
++    const message = String((error as { message: unknown }).message ?? "");
++    if (message) {
++      return message;
++    }
++  }
++  return fallback;
++}
++
++// Pieces of at most `max` characters, joined back with `glue`.
++function pack(pieces: string[], max: number, glue: string, split: (piece: string) => string[]): string[] {
++  const out: string[] = [];
++  let current = "";
++  for (const piece of pieces) {
++    if (piece.length > max) {
++      if (current) {
++        out.push(current);
++        current = "";
++      }
++      out.push(...split(piece));
++      continue;
++    }
++    const joined = current ? `${current}${glue}${piece}` : piece;
++    if (joined.length > max) {
++      out.push(current);
++      current = piece;
++    } else {
++      current = joined;
++    }
++  }
++  if (current) {
++    out.push(current);
++  }
++  return out;
++}
++
++function hardCut(text: string, max: number): string[] {
++  const out: string[] = [];
++  for (let start = 0; start < text.length; start += max) {
++    out.push(text.slice(start, start + max));
++  }
++  return out;
++}
++
++function byWords(text: string, max: number): string[] {
++  return pack(text.split(/\s+/).filter(Boolean), max, " ", (word) => hardCut(word, max));
++}
++
++function bySentences(text: string, max: number): string[] {
++  const sentences = text.match(/[^.!?…]+(?:[.!?…]+["'”’)\]]*|$)/g) ?? [text];
++  return pack(
++    sentences.map((sentence) => sentence.trim()).filter(Boolean),
++    max,
++    " ",
++    (sentence) => byWords(sentence, max),
++  );
++}
++
++// A passage in the pieces the engine takes: whole paragraphs where they fit,
++// else whole sentences, else whole words. Never an empty piece.
++export function splitForSpeech(text: string, max = MAX_CHUNK): string[] {
++  const paragraphs = text
++    .split(/\n+/)
++    .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
++    .filter(Boolean);
++  return pack(paragraphs, max, "\n", (paragraph) => bySentences(paragraph, max));
++}
++
++function clamp(value: number | undefined, min: number, max: number): number | undefined {
++  return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : undefined;
++}
++
++// What the engine is asked for: nothing the engine would refuse.
++export function speakOptions(options: NativeSpeakOptions = {}): Omit<Parameters<SpeechPlugin["speak"]>[0], "chunks"> {
++  const out: Omit<Parameters<SpeechPlugin["speak"]>[0], "chunks"> = {};
++  const voice = typeof options.voice === "string" ? options.voice.trim() : "";
++  if (voice) out.voice = voice;
++  const rate = clamp(options.rate, 0.25, 4);
++  if (rate !== undefined) out.rate = rate;
++  const pitch = clamp(options.pitch, 0.25, 4);
++  if (pitch !== undefined) out.pitch = pitch;
++  const volume = clamp(options.volume, 0, 1);
++  if (volume !== undefined) out.volume = volume;
++  return out;
++}
++
++const LANGUAGE_NAMES = (() => {
++  try {
++    return new Intl.DisplayNames(["en"], { type: "language" });
++  } catch {
++    return null;
++  }
++})();
++
++// "en-us-x-iob-local" in en-US reads "English (United States), iob". Google's
++// voices are named for their locale and a short variant; other engines
++// name them freely, and those names are shown as they are.
++export function voiceLabel(voice: SpeechPluginVoice): string {
++  let language = voice.language;
++  try {
++    language = LANGUAGE_NAMES?.of(voice.language) ?? voice.language;
++  } catch {
++    // An engine's own tag the browser cannot name.
++  }
++  const google = /^[a-z]{2,3}-[a-z]{2,3}-x-([a-z0-9]+)(?:#[^-]+)?-(?:local|network)$/i.exec(voice.id);
++  const variant = google ? google[1] : voice.id;
++  return `${language}, ${variant}${voice.local ? "" : " (online)"}`;
++}
++
++export function createNativeSpeech(plugin: SpeechPlugin): NativeSpeech {
++  return {
++    async speak(text, options) {
++      const chunks = splitForSpeech(String(text ?? ""));
++      if (!chunks.length) {
++        return "done";
++      }
++      try {
++        const { finished } = await plugin.speak({ chunks, ...speakOptions(options) });
++        return finished ? "done" : "stopped";
++      } catch (error) {
++        throw new Error(reason(error, "This phone's voice could not read that passage."));
++      }
++    },
++    async stop() {
++      await plugin.stop().catch(() => {});
++    },
++    async voices() {
++      const answer = await plugin.voices().catch(() => ({ voices: [] as SpeechPluginVoice[] }));
++      const seen = new Set<string>();
++      const voices: NativeSpeechVoice[] = [];
++      for (const voice of answer.voices ?? []) {
++        const id = String(voice?.id ?? "").trim();
++        if (!id || seen.has(id)) continue;
++        seen.add(id);
++        const clean = { id, language: String(voice.language ?? ""), local: Boolean(voice.local) };
++        voices.push({ ...clean, name: voiceLabel(clean) });
++      }
++      // The voices that work offline first, then by name.
++      return voices.sort((a, b) => Number(b.local) - Number(a.local) || a.name.localeCompare(b.name));
++    },
++  };
++}
++
++// Offers the voice to the page only when the phone has a working engine: a
++// read-aloud switch that then said nothing would be worse than none.
++// Resolves true once installed.
++export async function installNativeSpeech(
++  plugin: SpeechPlugin,
++  target: { odmSpeech?: NativeSpeech; dispatchEvent(event: Event): boolean },
++): Promise<boolean> {
++  const answer = await plugin.available().catch(() => ({ available: false }));
++  if (!answer.available) {
++    return false;
++  }
++  target.odmSpeech = createNativeSpeech(plugin);
++  target.dispatchEvent(new Event(SPEECH_READY_EVENT));
++  return true;
++}
+diff --git a/mobile/src/speech.ts b/mobile/src/speech.ts
+new file mode 100644
+index 0000000..0828ba2
+--- /dev/null
++++ b/mobile/src/speech.ts
+@@ -0,0 +1,11 @@
++import { registerPlugin } from "@capacitor/core";
++import { installNativeSpeech, type SpeechPlugin } from "./speech-core";
++
++// The native half lives in android/.../SpeechPlugin.java.
++const OdmSpeech = registerPlugin<SpeechPlugin>("OdmSpeech");
++
++// Called once at startup: asks the phone for its text-to-speech engine and,
++// when it has one, hands it to the game's screens.
++export function offerNativeSpeech(): void {
++  void installNativeSpeech(OdmSpeech, window);
++}
+diff --git a/mobile/tests/speech.test.ts b/mobile/tests/speech.test.ts
+new file mode 100644
+index 0000000..ef7baa0
+--- /dev/null
++++ b/mobile/tests/speech.test.ts
+@@ -0,0 +1,148 @@
++import assert from "node:assert/strict";
++import { test } from "node:test";
++import {
++  createNativeSpeech,
++  installNativeSpeech,
++  MAX_CHUNK,
++  SPEECH_READY_EVENT,
++  speakOptions,
++  splitForSpeech,
++  voiceLabel,
++  type SpeechPlugin,
++} from "../src/speech-core";
++
++// The phone's voice as the table's narration sees it.
++
++function fakePlugin(options: { available?: boolean; finished?: boolean; fails?: string; voices?: unknown[] } = {}) {
++  const spoken: Array<Parameters<SpeechPlugin["speak"]>[0]> = [];
++  let stops = 0;
++  const plugin: SpeechPlugin = {
++    async available() {
++      return { available: options.available ?? true };
++    },
++    async speak(request) {
++      spoken.push(request);
++      if (options.fails) {
++        throw new Error(options.fails);
++      }
++      return { finished: options.finished ?? true };
++    },
++    async stop() {
++      stops += 1;
++    },
++    async voices() {
++      return { voices: (options.voices ?? []) as never };
++    },
++  };
++  return { plugin, spoken, stops: () => stops };
++}
++
++test("a short passage is one chunk, whitespace folded, paragraphs kept apart", () => {
++  assert.deepEqual(splitForSpeech("  The door   creaks.\n\n\nA voice:  \"Who goes there?\"  "), [
++    "The door creaks.\nA voice: \"Who goes there?\"",
++  ]);
++  assert.deepEqual(splitForSpeech("   \n\n  "), []);
++});
++
++test("a long passage splits at paragraphs, then sentences, then words, never past the limit", () => {
++  const paragraph = "The torches gutter. ".repeat(10).trim();
++  const chunks = splitForSpeech(`${paragraph}\n${paragraph}\n${paragraph}`, 250);
++  assert.ok(chunks.length >= 2);
++  for (const chunk of chunks) {
++    assert.ok(chunk.length <= 250, `chunk of ${chunk.length}`);
++    assert.ok(chunk.trim().length > 0);
++  }
++  // Nothing lost: the same words in the same order.
++  const words = (text: string) => text.split(/\s+/).filter(Boolean);
++  assert.deepEqual(words(chunks.join(" ")), words(`${paragraph} ${paragraph} ${paragraph}`));
++
++  const sentence = `${"word ".repeat(80).trim()}.`;
++  for (const chunk of splitForSpeech(sentence, 50)) {
++    assert.ok(chunk.length <= 50);
++  }
++  assert.deepEqual(splitForSpeech("x".repeat(120), 50), ["x".repeat(50), "x".repeat(50), "x".repeat(20)]);
++  assert.ok(splitForSpeech("A. ".repeat(5000)).every((chunk) => chunk.length <= MAX_CHUNK));
++});
++
++test("options the engine would refuse are clamped or dropped", () => {
++  assert.deepEqual(speakOptions({ voice: "  en-us-x-iob-local ", rate: 9, pitch: 0, volume: 1.5 }), {
++    voice: "en-us-x-iob-local",
++    rate: 4,
++    pitch: 0.25,
++    volume: 1,
++  });
++  assert.deepEqual(speakOptions({ voice: " ", rate: Number.NaN }), {});
++  assert.deepEqual(speakOptions(), {});
++});
++
++test("speak hands the engine the chunks and says how the take ended", async () => {
++  const done = fakePlugin();
++  const speech = createNativeSpeech(done.plugin);
++  assert.equal(await speech.speak("Roll for initiative.", { rate: 1.1, volume: 0.5 }), "done");
++  assert.deepEqual(done.spoken, [{ chunks: ["Roll for initiative."], rate: 1.1, volume: 0.5 }]);
++
++  const cut = fakePlugin({ finished: false });
++  assert.equal(await createNativeSpeech(cut.plugin).speak("A long tale."), "stopped");
++
++  const empty = fakePlugin();
++  assert.equal(await createNativeSpeech(empty.plugin).speak("   "), "done");
++  assert.equal(empty.spoken.length, 0, "nothing to say is not sent");
++});
++
++test("an engine failure reaches the page as a sentence", async () => {
++  const broken = fakePlugin({ fails: "This phone's voice is still downloading. Try again in a moment." });
++  await assert.rejects(createNativeSpeech(broken.plugin).speak("Hello."), /still downloading/);
++});
++
++test("stop never throws", async () => {
++  const fake = fakePlugin();
++  fake.plugin.stop = async () => {
++    throw new Error("gone");
++  };
++  await createNativeSpeech(fake.plugin).stop();
++});
++
++test("voices are named, deduplicated, offline first", async () => {
++  const fake = fakePlugin({
++    voices: [
++      { id: "en-gb-x-gbd-network", language: "en-GB", local: false },
++      { id: "en-us-x-iob-local", language: "en-US", local: true },
++      { id: "en-us-x-iob-local", language: "en-US", local: true },
++      { id: "", language: "en-US", local: true },
++    ],
++  });
++  const voices = await createNativeSpeech(fake.plugin).voices();
++  assert.deepEqual(
++    voices.map((voice) => voice.id),
++    ["en-us-x-iob-local", "en-gb-x-gbd-network"],
++  );
++  assert.match(voices[0].name, /iob$/);
++  assert.match(voices[1].name, /gbd \(online\)$/);
++  assert.equal(voiceLabel({ id: "Samsung Fiona", language: "en-GB", local: true }).endsWith("Samsung Fiona"), true);
++});
++
++test("the voice is offered only when the phone has an engine", async () => {
++  const events: string[] = [];
++  const target: { odmSpeech?: unknown; dispatchEvent(event: Event): boolean } = {
++    dispatchEvent(event: Event) {
++      events.push(event.type);
++      return true;
++    },
++  };
++  assert.equal(await installNativeSpeech(fakePlugin({ available: false }).plugin, target as never), false);
++  assert.equal(target.odmSpeech, undefined);
++  assert.deepEqual(events, []);
++
++  assert.equal(await installNativeSpeech(fakePlugin().plugin, target as never), true);
++  assert.equal(typeof (target.odmSpeech as { speak?: unknown }).speak, "function");
++  assert.deepEqual(events, [SPEECH_READY_EVENT]);
++});
++
++test("an engine that throws while asked is treated as absent", async () => {
++  const fake = fakePlugin();
++  fake.plugin.available = async () => {
++    throw new Error("no engine");
++  };
++  const target = { dispatchEvent: () => true } as { odmSpeech?: unknown; dispatchEvent(event: Event): boolean };
++  assert.equal(await installNativeSpeech(fake.plugin, target as never), false);
++});
+-- 
+2.43.0
+
