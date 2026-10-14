@@ -58,8 +58,14 @@ replace_once(
 manifest = native / "AndroidManifest.xml"
 replace_once(
     manifest,
-    '<action android:name="android.speech.RecognitionService" />',
-    '<action android:name="android.speech.RecognitionService" />\n'
-    '            <action android:name="android.intent.action.TTS_SERVICE" />',
+    '        <intent>\n'
+    '            <action android:name="android.speech.RecognitionService" />\n'
+    '        </intent>',
+    '        <intent>\n'
+    '            <action android:name="android.speech.RecognitionService" />\n'
+    '        </intent>\n'
+    '        <intent>\n'
+    '            <action android:name="android.intent.action.TTS_SERVICE" />\n'
+    '        </intent>',
 )
 print("Android standalone native-TTS patches applied. Original app stays untouched.")
