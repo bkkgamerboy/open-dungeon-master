@@ -42,20 +42,38 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift || true
           df -h . | tail -1
-      - name: The signing password is set
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.ODM_VOICE_KEYSTORE_PASSWORD }}
-        run: |
-          if [ -z "$KEYSTORE_PASSWORD" ]; then
-            echo "::error::Add the repository secret ODM_VOICE_KEYSTORE_PASSWORD (Settings > Secrets and variables > Actions) and run this again."
-            exit 1
-          fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: open-dungeon-master
           # The client's bundle-server.mjs builds from a git worktree of HEAD,
           # so it needs real history, not a shallow grafted checkout.
           fetch-depth: 0
+      # First, so a missing or mistyped password fails in a minute rather
+      # than after the whole build. The password is six lowercase words
+      # joined by hyphens, typed on a phone, so capitals, spaces or
+      # underscores for hyphens, dashes a keyboard "smartened" and stray
+      # spaces at either end are all forgiven.
+      - name: Unlock the signing key
+        env:
+          RAW_PASSWORD: ${{ secrets.ODM_VOICE_KEYSTORE_PASSWORD || secrets.MY_SECRET }}
+        run: |
+          pw=$(printf '%s' "$RAW_PASSWORD" \
+            | sed -e 's/\xe2\x80\x93/-/g' -e 's/\xe2\x80\x94/-/g' -e 's/\xe2\x80\x90/-/g' \
+            | tr '[:upper:]' '[:lower:]' \
+            | tr -s ' _\t\r\n-' '-' \
+            | sed -e 's/^-//' -e 's/-$//')
+          if [ -z "$pw" ]; then
+            echo "::error::No signing password. Add it as the repository secret MY_SECRET (Settings > Secrets and variables > Actions) and run this again."
+            exit 1
+          fi
+          echo "::add-mask::$pw"
+          export ODM_UNLOCK="$pw"
+          if ! openssl pkcs12 -in open-dungeon-master/android-voice/voice.keystore -noout -passin env:ODM_UNLOCK >/dev/null 2>&1; then
+            echo "::error::The password in the MY_SECRET secret does not unlock the signing key. Edit the secret and type the six words again."
+            exit 1
+          fi
+          echo "ODM_ANDROID_KEYSTORE_PASSWORD=$pw" >> "$GITHUB_ENV"
+          echo "The signing key unlocks."
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ env.CLIENT_REPO }}
@@ -122,7 +140,7 @@ jobs:
         working-directory: client/mobile/android
         env:
           ODM_ANDROID_KEYSTORE: ${{ github.workspace }}/open-dungeon-master/android-voice/voice.keystore
-          ODM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ODM_VOICE_KEYSTORE_PASSWORD }}
+          # ODM_ANDROID_KEYSTORE_PASSWORD comes from "Unlock the signing key".
           ODM_ANDROID_KEY_ALIAS: odm-voice
         run: |
           df -h . | tail -1

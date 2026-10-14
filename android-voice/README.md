@@ -33,6 +33,8 @@ Settings.
 
 `voice.keystore` is the signing key, encrypted (PKCS#12, AES-256). Every
 build is signed with it, so each new build installs over the last one and
-keeps its world. The password is the repository secret
-`ODM_VOICE_KEYSTORE_PASSWORD` and is never committed. Without that secret
-the build stops before signing.
+keeps its world. The password, six lowercase words joined by hyphens, is
+the repository secret `MY_SECRET` (or `ODM_VOICE_KEYSTORE_PASSWORD`) and is
+never committed. The build checks it first: capitals, and spaces or
+dashes in place of hyphens, are forgiven, and a wrong or missing password
+stops the build in its first minute.
