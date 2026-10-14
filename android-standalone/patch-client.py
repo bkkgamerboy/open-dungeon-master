@@ -40,8 +40,8 @@ replace_once(
 )
 replace_once(
     src / "bridge.ts",
-    "  offerNativeDictation();",
-    "  offerNativeDictation();\n  offerNativeNarration();",
+    "offerNativeDictation();",
+    "offerNativeDictation();\nofferNativeNarration();",
 )
 # Distinct application ID keeps the original official app and all its
 # characters/campaigns installed and completely untouched on the same phone.
