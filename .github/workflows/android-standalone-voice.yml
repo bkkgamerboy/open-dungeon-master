@@ -6,6 +6,7 @@ on:
     paths:
       - 'android-standalone/**'
       - 'src/lib/native-narration.ts'
+      - 'tsconfig.json'
       - 'src/app/campaigns/**'
       - '.github/workflows/android-standalone-voice.yml'
   workflow_dispatch:
