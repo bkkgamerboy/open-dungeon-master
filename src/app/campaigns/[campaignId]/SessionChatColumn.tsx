@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { nativeNarration } from "@/lib/native-narration";
 import { cn } from "@/lib/cn";
 import { MessageList } from "@/app/campaigns/[campaignId]/MessageList";
 import { ReportDialog, type ReportTarget } from "@/app/campaigns/[campaignId]/ReportDialog";
@@ -79,6 +80,31 @@ export function SessionChatColumn({
     [state.blockedUserIds, justBlocked],
   );
   const ttsEnabled = Boolean(campaign?.gameSettings?.ttsEnabled);
+  // Android speaks the *newly completed* DM passage for free, through the
+  // phone's system TextToSpeech engine. Initial history must not be replayed
+  // when a campaign is opened or the view is mounted again.
+  const narrationSeeded = useRef(false);
+  const lastSpokenDmId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!campaign) return;
+    let latestDm: CampaignMessage | undefined;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const item = messages[index];
+      if (item.authorType === "dm" && item.content.trim()) {
+        latestDm = item;
+        break;
+      }
+    }
+    if (!narrationSeeded.current) {
+      narrationSeeded.current = true;
+      lastSpokenDmId.current = latestDm?.id ?? null;
+      return;
+    }
+    if (!latestDm || latestDm.id === lastSpokenDmId.current) return;
+    lastSpokenDmId.current = latestDm.id;
+    // Do not talk over the server's Kokoro/OpenAI voice when it is enabled.
+    if (!ttsEnabled) nativeNarration()?.speak(latestDm.content);
+  }, [campaign, messages, ttsEnabled]);
   // Ask already reports its own progress inside the strip, naming the
   // question being answered, so repeating it in the strip is the same news
   // twice.
