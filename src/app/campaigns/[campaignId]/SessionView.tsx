@@ -11,6 +11,7 @@ import { askConcentrationSwap, isConcentrationQuestion } from "@/components/conc
 import { HandoutStage } from "@/components/HandoutStage";
 import { SafetyPause } from "@/app/campaigns/[campaignId]/SafetyPause";
 import type { Speaker } from "@/lib/dm/speech";
+import { stripForSpeech } from "@/lib/speech-text";
 import type { MapLabel } from "@/lib/battlemap/scene";
 
 const NOOP = () => {};
@@ -299,12 +300,29 @@ export function SessionView({
     }).catch(() => undefined);
   }, [canShake, shakeOn, campaignIdForShake]);
 
-  const { narration, ambience } = useTableAudio(state);
+  const { narration, ambience, engine: narrationEngine } = useTableAudio(state);
+  // With the device's own voice, Read aloud reads the passage's words. The
+  // messages are read through a ref so the replay callback, handed to every
+  // transcript row, keeps one identity while the transcript grows.
+  const spokenMessagesRef = useRef(state.messages);
+  useEffect(() => {
+    spokenMessagesRef.current = state.messages;
+  }, [state.messages]);
+  const spokenText = useMemo(
+    () =>
+      narrationEngine === "phone"
+        ? (messageId: string) => {
+            const message = spokenMessagesRef.current.find((entry) => entry.id === messageId);
+            return message ? stripForSpeech(message.content) || null : null;
+          }
+        : null,
+    [narrationEngine],
+  );
   // Narration that was not read aloud, and the way to ask for it again
   // (issue 88): under the passage in the transcript, and above the composer
   // where a staged fight still shows it.
   const narrationStatus = useNarrationStatus(narration, state.narrationStatus);
-  const replayNarration = useNarrationReplay(campaign?.id ?? "", narration, state.narrationAudio);
+  const replayNarration = useNarrationReplay(campaign?.id ?? "", narration, state.narrationAudio, spokenText);
   const messageIds = useMemo(() => state.messages.map((message) => message.id), [state.messages]);
   const narrationNotice = useMemo(
     () => <NarrationFailureBanner messageIds={messageIds} status={narrationStatus} onRetry={replayNarration} />,

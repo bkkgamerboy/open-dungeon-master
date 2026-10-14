@@ -36,17 +36,28 @@ export function useNarrationStatus(
 
 // Plays the stored narration, rendering it first when this passage has never
 // been voiced. Resolves to an error string on failure, null on success.
+// With `spokenText` (the device reads with its own voice), the passage's
+// words are read by that voice instead: nothing to render or download.
 export function useNarrationReplay(
   campaignId: string,
-  narration: Pick<NarrationAudio, "unlock" | "play">,
+  narration: Pick<NarrationAudio, "unlock" | "play" | "say">,
   known: Record<string, string>,
+  spokenText: ((messageId: string) => string | null) | null = null,
 ) {
-  const { unlock, play } = narration;
+  const { unlock, play, say } = narration;
   return useCallback(
     async (messageId: string): Promise<string | null> => {
       // The click doubles as the gesture that gets us past the browser's
       // autoplay block.
       unlock();
+      if (spokenText) {
+        const text = spokenText(messageId);
+        if (!text) {
+          return "There is nothing in that passage to read aloud.";
+        }
+        say(messageId, text);
+        return null;
+      }
       const url = known[messageId];
       if (url) {
         play(messageId, url);
@@ -64,7 +75,7 @@ export function useNarrationReplay(
       play(messageId, data.url);
       return null;
     },
-    [campaignId, unlock, play, known],
+    [campaignId, unlock, play, say, known, spokenText],
   );
 }
 

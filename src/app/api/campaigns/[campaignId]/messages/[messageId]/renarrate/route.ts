@@ -53,7 +53,9 @@ export async function POST(
     if ("error" in selected) {
       return Response.json({ error: selected.error }, { status: selected.status });
     }
-    publishPersisted(campaignId, "message_updated", { message: selected.message });
+    // `narrate`: the take picked is read aloud again (selectRenarrateVariant),
+    // so a device reading with its own voice reads it too.
+    publishPersisted(campaignId, "message_updated", { message: selected.message, narrate: true });
     return Response.json({ message: selected.message });
   }
 
@@ -85,6 +87,7 @@ export async function POST(
   if ("error" in result) {
     return Response.json({ error: result.error }, { status: result.status });
   }
-  publishPersisted(campaignId, "message_updated", { message: result.message });
+  // Read aloud again (runRenarrate), here and on a device's own voice.
+  publishPersisted(campaignId, "message_updated", { message: result.message, narrate: true });
   return Response.json({ message: result.message });
 }

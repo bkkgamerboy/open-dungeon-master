@@ -14,6 +14,7 @@ import { ui } from "@/lib/ui";
 import { headerButtonClass } from "@/app/campaigns/[campaignId]/headerButton";
 import { VoiceDock } from "@/app/campaigns/[campaignId]/VoiceDock";
 import { useCapabilities } from "@/lib/use-capabilities";
+import { useHasNativeSpeech } from "@/lib/native-speech";
 import { RulebookDialog } from "@/components/rulebook/RulebookDialog";
 import type { NarrationAudio } from "@/app/campaigns/[campaignId]/useNarrationAudio";
 import type { AmbienceAudio } from "@/app/campaigns/[campaignId]/useAmbienceAudio";
@@ -183,9 +184,11 @@ export const SessionHeader = memo(function SessionHeader({
 }) {
   // Narration switched off server-wide: no passage is read aloud, so the
   // narration volume would steer nothing (issue 275; the lobby's own row
-  // reads Off for the same reason).
+  // reads Off for the same reason). Unless this device reads aloud with its
+  // own voice (src/lib/phone-voice.ts), which the same control steers.
   const capabilities = useCapabilities();
-  const narrates = ttsEnabled && capabilities?.tts?.provider !== "off";
+  const ownVoice = useHasNativeSpeech();
+  const narrates = ttsEnabled && (capabilities?.tts?.provider !== "off" || ownVoice);
   const diceItem = "session-menu-row";
   return (
     <header className="glass session-header cine-header z-10 flex items-center gap-2 border-b border-stone-700/40 px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] sm:gap-3 sm:px-4">

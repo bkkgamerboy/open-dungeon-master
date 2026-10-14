@@ -365,7 +365,9 @@ export async function expandBeat(
   if (!updated) {
     return { error: "Could not store the spoken take." };
   }
-  publishPersisted(campaign.id, "message_updated", { message: updated });
+  // `narrate`: the new take is read aloud again, so a device reading with
+  // its own voice reads it too (useCampaignStream's latestPassage).
+  publishPersisted(campaign.id, "message_updated", { message: updated, narrate: true });
   if (campaign.gameSettings.ttsEnabled) {
     void enqueueNarrationAudio(
       campaign.id,

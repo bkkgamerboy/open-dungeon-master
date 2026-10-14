@@ -32,6 +32,7 @@ import {
 } from "@/lib/srd/ability-rerolls";
 import { useServerRerollBelow } from "@/app/characters/builder/useTableRules";
 import { transcribesVoice, useCapabilities } from "@/lib/use-capabilities";
+import { useHasNativeSpeech } from "@/lib/native-speech";
 import {
   CAMPAIGN_LENGTH_LABELS,
   CAMPAIGN_LENGTHS,
@@ -110,9 +111,16 @@ export function GameSettingsPanel({
   // a server that gains a speech engine later brings the table's choice
   // back. A speech server that is named but not answering is one switch
   // away, and the note under the row says so; only off holds the switch.
+  //
+  // A device that reads aloud with its own voice (the Android app) narrates
+  // whatever the server can do, so there the switch is never held; the
+  // server's voices are only offered where the server narrates.
   const capabilities = useCapabilities();
-  const narrationOff = capabilities?.tts?.provider === "off";
+  const ownVoice = useHasNativeSpeech();
+  const serverOff = capabilities?.tts?.provider === "off";
+  const narrationOff = serverOff && !ownVoice;
   const narrating = settings.ttsEnabled && !narrationOff;
+  const serverNarrates = narrating && !serverOff;
   // Every control here renders the server's settings, so a refused PATCH
   // changes nothing on screen; without this line it changes nothing silently.
   const [error, setError] = useState("");
@@ -440,7 +448,7 @@ export function GameSettingsPanel({
           <SettingToggle label="Narration" on={narrating} disabled={narrationOff} onToggle={() => patch({ ttsEnabled: !settings.ttsEnabled })}>
             {narrating ? "On" : narrationOff ? "Off on this server" : "Off"}
           </SettingToggle>
-          {narrating ? (
+          {serverNarrates ? (
             <>
               <VoicePicker
                 size="sm"
@@ -452,7 +460,7 @@ export function GameSettingsPanel({
             </>
           ) : null}
         </div>
-        {narrating ? (
+        {serverNarrates ? (
           <CharacterVoices campaignId={campaignId} settings={settings} steersStory patch={patch} />
         ) : null}
         {narrating || narrationOff ? <NarrationNote /> : null}

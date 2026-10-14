@@ -6,8 +6,8 @@ import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "nod
 import path from "node:path";
 import { publishEphemeral, publishPersisted } from "@/lib/events";
 import { publishMediaStatus } from "@/lib/dm/images";
-import { stripToolText } from "@/lib/dm/tool-text";
 import { enqueueMediaJob } from "@/lib/media-queue";
+import { stripForSpeech } from "@/lib/speech-text";
 import { describeSpeechFailure, synthesizeSpeech, ttsBackend, withNarrationModel, type TtsBackend } from "@/lib/tts-backend";
 import type { Speaker, SpokenLine } from "@/lib/dm/speech";
 import { closeLiveNarration, openLiveNarration, pushLiveNarration, renderSpeech } from "@/lib/tts-render";
@@ -25,19 +25,6 @@ import { foldName } from "@/lib/language/text-logic";
 // does, and announced with a tts_ready event; clients autoplay it
 // (latest-only) with per-user mute. A render that fails says so to the
 // table, with the reason (issue 88).
-
-function stripForSpeech(text: string): string {
-  return stripToolText(text)
-    .replace(/\[roll:[^\]]+\]/g, " ")
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/[*_#>`]/g, "")
-    // Line breaks stay: who said a line depends on the paragraph it opens
-    // (src/lib/dm/speech.ts), and the voices must hear it as the
-    // transcript shows it. planSpeech flattens each part it reads.
-    .replace(/[^\S\n]+/g, " ")
-    .replace(/ ?\n\s*/g, "\n")
-    .trim();
-}
 
 export function narrationAudioPath(campaignId: string, messageId: string): string {
   return path.join(/*turbopackIgnore: true*/ process.cwd(), "public", "generated-audio", campaignId, `${messageId}.mp3`);

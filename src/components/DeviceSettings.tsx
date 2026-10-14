@@ -46,6 +46,19 @@ import { Slider as KitSlider } from "@/components/ui/Slider";
 import { Switch as KitSwitch } from "@/components/ui/Switch";
 import { ui } from "@/lib/ui";
 import { paintedMapsOn, writePaintedMaps } from "@/lib/painted-maps";
+import {
+  nativeSpeech,
+  phoneSpeakOptions,
+  useHasNativeSpeech,
+  usePhoneVoiceAlways,
+  usePhoneVoiceId,
+  usePhoneVoiceRate,
+  writePhoneVoiceAlways,
+  writePhoneVoiceId,
+  writePhoneVoiceRate,
+  type NativeSpeechVoice,
+} from "@/lib/native-speech";
+import { PHONE_RATE_MAX, PHONE_RATE_MIN } from "@/lib/phone-voice";
 import { MASTER_VOLUME_MAX, VOLUME_STEP } from "@/lib/voice/volume";
 
 // Everything about the machine in front of the player: which microphone
@@ -403,6 +416,97 @@ function MicrophoneSection({ devices }: { devices: ReturnType<typeof useDevices>
   );
 }
 
+const PHONE_DEFAULT = "__phone_default";
+const PHONE_SAMPLE = "The tavern door creaks open. Roll for initiative, adventurer.";
+
+// The device's own voice (src/lib/native-speech.ts), on a device that has
+// one: the Android app. Shown nowhere else.
+function PhoneVoiceSettings({ volume }: { volume: number }) {
+  const available = useHasNativeSpeech();
+  const always = usePhoneVoiceAlways();
+  const voiceId = usePhoneVoiceId();
+  const rate = usePhoneVoiceRate();
+  const [voices, setVoices] = useState<NativeSpeechVoice[] | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [problem, setProblem] = useState("");
+  useEffect(() => {
+    const speech = available ? nativeSpeech() : null;
+    if (!speech) {
+      return;
+    }
+    let live = true;
+    speech.voices().then(
+      (list) => {
+        if (live) setVoices(list);
+      },
+      () => {
+        if (live) setVoices([]);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [available]);
+  if (!available) {
+    return null;
+  }
+  const options: SelectOption<string>[] = [
+    { value: PHONE_DEFAULT, label: "The phone's default" },
+    ...(voices ?? []).map((voice) => ({ value: voice.id, label: voice.name })),
+  ];
+  // A voice the phone no longer has reads as the default, as it is spoken.
+  const chosen = voiceId && voices?.some((voice) => voice.id === voiceId) ? voiceId : PHONE_DEFAULT;
+  const test = async () => {
+    const speech = nativeSpeech();
+    if (!speech) return;
+    setProblem("");
+    setTesting(true);
+    try {
+      await speech.speak(PHONE_SAMPLE, phoneSpeakOptions(volume));
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : "This phone's voice could not read the sample.");
+    } finally {
+      setTesting(false);
+    }
+  };
+  return (
+    <div className="space-y-3">
+      <div>
+        <Switch label="Always use this phone's voice" on={always} onChange={writePhoneVoiceAlways} />
+        <p className="mt-1 text-xs text-stone-500">
+          {always
+            ? "Passages are read aloud by this phone, free and offline, even where the server has narration."
+            : "This phone reads passages aloud itself wherever the server has no narration. Turn this on to use it everywhere."}
+        </p>
+      </div>
+      <div>
+        <span className={cn(LABEL, "mb-1 block")}>Phone voice</span>
+        <div className="reveal flex items-center gap-2">
+          <Select
+            value={chosen}
+            onChange={(value) => writePhoneVoiceId(value === PHONE_DEFAULT ? "" : value)}
+            options={options}
+            label="Phone voice"
+            size="sm"
+            className="min-w-0 flex-1"
+          />
+          <button type="button" onClick={() => void test()} disabled={testing} className={BUTTON}>
+            {testing ? "Speaking…" : "Test"}
+          </button>
+        </div>
+        {problem ? <p className="mt-1 text-xs text-amber-400/90">{problem}</p> : null}
+      </div>
+      <Slider
+        label="Phone voice speed"
+        value={rate}
+        min={PHONE_RATE_MIN}
+        max={PHONE_RATE_MAX}
+        onChange={writePhoneVoiceRate}
+      />
+    </div>
+  );
+}
+
 function PlaybackSection({ devices }: { devices: ReturnType<typeof useDevices> }) {
   const outputId = useOutputId();
   const volumes = useVolumePrefs();
@@ -458,6 +562,7 @@ function PlaybackSection({ devices }: { devices: ReturnType<typeof useDevices> }
           on={!narrationMuted}
           onChange={(on) => writeAudioPref("narrationMuted", !on)}
         />
+        <PhoneVoiceSettings volume={narrationVolume} />
         <Slider
           label="Ambience"
           value={ambienceVolume}

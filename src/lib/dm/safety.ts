@@ -73,7 +73,9 @@ export async function resumeAfterXCard(
     if ("error" in result) {
       outcome = { error: result.error };
     } else {
-      publishPersisted(campaignId, "message_updated", { message: result.message });
+      // Rewritten and read aloud again (runRenarrate), here and on a device
+      // reading with its own voice.
+      publishPersisted(campaignId, "message_updated", { message: result.message, narrate: true });
     }
   }
   resumeDmQueue(campaignId);

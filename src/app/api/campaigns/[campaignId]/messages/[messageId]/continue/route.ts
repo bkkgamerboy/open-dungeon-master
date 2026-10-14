@@ -40,6 +40,8 @@ export async function POST(
   if ("error" in result) {
     return Response.json({ error: result.error }, { status: result.status });
   }
-  publishPersisted(campaignId, "message_updated", { message: result.message });
+  // `narrate`: the longer passage is read aloud again (runContinueScene), so
+  // a device reading with its own voice reads it too.
+  publishPersisted(campaignId, "message_updated", { message: result.message, narrate: true });
   return Response.json({ message: result.message });
 }

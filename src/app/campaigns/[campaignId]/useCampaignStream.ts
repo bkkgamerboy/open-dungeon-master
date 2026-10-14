@@ -256,6 +256,11 @@ export type CampaignState = {
   // `live` marks a passage offered while it is still being rendered
   // (tts_stream): heard now, by whoever is at the table now.
   latestTts: { messageId: string; url: string; seq: number; live?: boolean } | null;
+  // The newest DM passage to be read aloud, as the server's narration would
+  // read it: a new passage, or new prose for one (a reroll, a continued
+  // scene). Never a beat, which records what the table already heard. A
+  // device reading with its own voice speaks from this (useTableAudio).
+  latestPassage: { messageId: string; seq: number } | null;
   latestRoll: { roll: StoredRoll; source: string; seq: number } | null;
   lastSeq: number;
   dmStatus: DmStatus;
@@ -363,6 +368,7 @@ const initialState: CampaignState = {
   safetyPause: null,
   narrationAudio: {},
   latestTts: null,
+  latestPassage: null,
   latestRoll: null,
   lastSeq: 0,
   dmStatus: "idle",
@@ -517,6 +523,12 @@ export function campaignReducer(state: CampaignState, action: Action): CampaignS
             // ruling (src/lib/dm/beats.ts).
             if (!payload.beat) {
               next.dmIntents = state.dmIntents.filter((intent) => intent.seq > message.seq);
+            }
+          }
+          if (message.authorType === "dm" && !payload.beat) {
+            const before = state.messages.find((entry) => entry.id === message.id);
+            if (!before || before.content !== message.content) {
+              next.latestPassage = { messageId: message.id, seq: action.seq ?? message.seq };
             }
           }
           return next;
@@ -914,6 +926,13 @@ export function campaignReducer(state: CampaignState, action: Action): CampaignS
             next.messages = state.messages.map((message) =>
               message.id === updated.id ? updated : message,
             );
+            // New prose the server reads aloud again (a reroll or the take
+            // picked, a scene continued, a delegated turn) says so with
+            // `narrate`; a typo fixed or a lore correction does not, and is
+            // not read again here either.
+            if (updated.authorType === "dm" && payload.narrate === true) {
+              next.latestPassage = { messageId: updated.id, seq: action.seq ?? updated.seq };
+            }
           }
           return next;
         }

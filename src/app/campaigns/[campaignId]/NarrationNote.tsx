@@ -1,6 +1,7 @@
 "use client";
 
 import { useCapabilities } from "@/lib/use-capabilities";
+import { useHasNativeSpeech, usePhoneVoiceAlways } from "@/lib/native-speech";
 import type { ImageBackend } from "@/lib/types";
 
 // Where a campaign's narration and pictures are actually made (issue 89).
@@ -16,11 +17,25 @@ const warnClass = "reveal text-[11px] leading-4 text-amber-400/90";
 
 export function NarrationNote() {
   const capabilities = useCapabilities();
+  const ownVoice = useHasNativeSpeech();
+  const always = usePhoneVoiceAlways();
   const tts = capabilities?.tts;
   // No answer yet, or a server older than these fields: say nothing rather
   // than guess.
   if (!tts || !tts.provider) {
     return null;
+  }
+  // This device reads aloud with its own voice (src/lib/phone-voice.ts).
+  if (ownVoice && (always || tts.provider === "off")) {
+    return (
+      <p className={noteClass}>
+        This device reads each passage aloud with its own voice: free, offline, nothing sent anywhere. Pick the
+        voice and speed in Settings.
+        {tts.provider === "off"
+          ? " The server has no narration, so other players hear passages only on a device with a voice of its own."
+          : " The server still makes its own audio for the other players while narration is on in Admin > Speech."}
+      </p>
+    );
   }
   if (tts.provider === "off") {
     return (
