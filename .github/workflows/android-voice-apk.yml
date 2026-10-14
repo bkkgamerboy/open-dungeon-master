@@ -8,9 +8,9 @@
 name: Android voice APK
 on:
   workflow_dispatch:
+  # Every push builds (an empty commit too, which is how a build is asked for).
   push:
     branches: [phone-voice]
-    paths-ignore: ["**/*.md"]
 
 permissions:
   contents: write
