@@ -17,10 +17,10 @@ import type { NarrationStatus } from "@/app/campaigns/[campaignId]/useCampaignSt
 // What each seat should be told. A seat with narration muted is not waiting
 // for a voice and is told nothing.
 export function useNarrationStatus(
-  narration: Pick<NarrationAudio, "muted" | "playbackFailure">,
+  narration: Pick<NarrationAudio, "muted" | "playbackFailure" | "playbackFailureReason">,
   status: Record<string, NarrationStatus>,
 ): Record<string, NarrationStatus> | undefined {
-  const { muted, playbackFailure } = narration;
+  const { muted, playbackFailure, playbackFailureReason } = narration;
   return useMemo(() => {
     if (muted) {
       return undefined;
@@ -28,10 +28,13 @@ export function useNarrationStatus(
     return playbackFailure
       ? {
           ...status,
-          [playbackFailure]: { state: "failed" as const, reason: "The audio was made, but this device could not play it." },
+          [playbackFailure]: {
+            state: "failed" as const,
+            reason: playbackFailureReason || "The audio was made, but this device could not play it.",
+          },
         }
       : status;
-  }, [muted, playbackFailure, status]);
+  }, [muted, playbackFailure, playbackFailureReason, status]);
 }
 
 // Plays the stored narration, rendering it first when this passage has never

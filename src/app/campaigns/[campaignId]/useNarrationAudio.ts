@@ -58,8 +58,10 @@ export type NarrationAudio = {
   volume: number;
   unlocked: boolean;
   playingMessageId: string | null;
-  // The message whose audio this device last failed to play, if any.
+  // The message whose audio this device last failed to play, if any, and
+  // why, when the device's own voice said (null for the server's audio).
   playbackFailure: string | null;
+  playbackFailureReason: string | null;
   setMuted: (muted: boolean) => void;
   setVolume: (volume: number) => void;
   unlock: () => void;
@@ -78,6 +80,7 @@ export function useNarrationAudio(): NarrationAudio {
   const [unlocked, setUnlocked] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [playbackFailure, setPlaybackFailure] = useState<string | null>(null);
+  const [playbackFailureReason, setPlaybackFailureReason] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [audioByMessage] = useState(() => new Map<string, string>());
   const unlockedRef = useRef(false);
@@ -190,9 +193,10 @@ export function useNarrationAudio(): NarrationAudio {
           run(next);
         }
       };
-      const fail = () => {
+      const fail = (reason: string | null = null) => {
         if (playingRef.current === id) {
           setPlaybackFailure(id);
+          setPlaybackFailureReason(reason);
         }
         finish();
       };
@@ -205,7 +209,7 @@ export function useNarrationAudio(): NarrationAudio {
         audioRef.current?.pause();
         const speech = nativeSpeech();
         if (!speech) {
-          fail();
+          fail("This device's voice is not available.");
           return;
         }
         speakingRef.current = true;
@@ -219,11 +223,11 @@ export function useNarrationAudio(): NarrationAudio {
             }
             finish();
           },
-          () => {
+          (error: unknown) => {
             if (playingRef.current === id) {
               speakingRef.current = false;
             }
-            fail();
+            fail(error instanceof Error && error.message ? error.message : "This device's voice could not read it.");
           },
         );
         return;
@@ -238,7 +242,7 @@ export function useNarrationAudio(): NarrationAudio {
       }
       const audio = audioRef.current;
       audio.onended = finish;
-      audio.onerror = fail;
+      audio.onerror = () => fail();
       const src = passage.url;
       audio.src = src;
       audio.volume = readVolume();
@@ -380,6 +384,7 @@ export function useNarrationAudio(): NarrationAudio {
       unlocked,
       playingMessageId,
       playbackFailure,
+      playbackFailureReason,
       setMuted,
       setVolume,
       unlock,
@@ -389,6 +394,6 @@ export function useNarrationAudio(): NarrationAudio {
       onTtsReady,
       onPassage,
     }),
-    [muted, volume, unlocked, playingMessageId, playbackFailure, setMuted, setVolume, unlock, play, say, audioByMessage, onTtsReady, onPassage],
+    [muted, volume, unlocked, playingMessageId, playbackFailure, playbackFailureReason, setMuted, setVolume, unlock, play, say, audioByMessage, onTtsReady, onPassage],
   );
 }
