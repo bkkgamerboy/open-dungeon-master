@@ -407,6 +407,97 @@ test("a chat model reads the turn-to-turn state after the transcript, the same t
   assert.deepEqual(plain.contextTrace, chat.contextTrace, "the budget and the trace are the same");
 });
 
+const { pickMomentPlacement } = await import("../src/lib/dm/moment-placement.ts");
+
+test("a paid public API reads the moment before the newest lines; local models and agents keep their order", () => {
+  assert.equal(pickMomentPlacement({ provider: "custom", paid: true }), "before-newest");
+  assert.equal(pickMomentPlacement({ provider: "custom", paid: false }), "system", "a model on this machine or the LAN");
+  assert.equal(pickMomentPlacement({ provider: "local", paid: false }), "system");
+  assert.equal(pickMomentPlacement({ provider: "harness", paid: true }), "system", "an agent program renders its own turn");
+  assert.equal(pickMomentPlacement({ provider: "local", paid: false, env: { DM_MOMENT_AFTER_HISTORY: "1" } }), "after-history");
+  assert.equal(pickMomentPlacement({ provider: "custom", paid: true, env: { DM_MOMENT_PLACEMENT: "system" } }), "system", "an operator who measured otherwise");
+  assert.equal(pickMomentPlacement({ provider: "custom", paid: false, env: { DM_MOMENT_PLACEMENT: "Before-Newest " } }), "before-newest");
+  assert.equal(pickMomentPlacement({ provider: "custom", paid: true, env: { DM_MOMENT_PLACEMENT: "nonsense" } }), "before-newest");
+});
+
+test("before the newest lines: the same text, the moment after the last narration, the newest player line still last", () => {
+  const history = [
+    { id: "m1", seq: 1, authorType: "player", characterId: "sheet-1", content: "I listen at the chapel door.", intent: null },
+    { id: "m2", seq: 2, authorType: "dm", characterId: null, content: "Chanting, low and wet.", intent: null },
+    { id: "m3", seq: 3, authorType: "player", characterId: "sheet-1", content: "I kick the door in.", intent: null },
+  ];
+  const plain = { ...fightingState(), contextLimitTokens: 131_072, directorBlock: "DIRECTOR: the bell rings once." };
+  const placed = { ...plain, momentPlacement: "before-newest" };
+  const before = buildDmMessages(plain, history);
+  const after = buildDmMessages(placed, history);
+  assert.equal(after.length, before.length + 1, "one more message: the moment");
+  assert.ok(!after[0].content.includes(THIS_MOMENT_HEADING), "no turn-to-turn state in the system message");
+  assert.deepEqual(after.slice(1, 3), before.slice(1, 3), "the transcript up to the last narration, untouched");
+  const moment = after[3];
+  assert.equal(moment.role, "user");
+  assert.ok(moment.content.startsWith(THIS_MOMENT_HEADING), "the guards still know it for the game state");
+  assert.ok(moment.content.endsWith("=== END GAME STATE ==="), "no instruction: the player's line follows it");
+  assert.deepEqual(after[4], before[3], "the newest player line, after the moment");
+  assert.equal(after.at(-2).content, before.at(-2).content, "and still the last line before the director's note");
+  assert.equal(after.at(-1).content, "DIRECTOR: the bell rings once.", "the director's note stays last");
+  assert.equal(`${after[0].content}\n\n${moment.content}`, before[0].content, "only the order changes, byte for byte");
+  assert.deepEqual(plain.contextTrace, placed.contextTrace, "the budget and the trace are the same");
+
+  // Nothing said since the last narration (an opening, a scene the DM
+  // carries on): the moment closes the prompt with the instruction to act.
+  const quiet = buildDmMessages({ ...plain, momentPlacement: "before-newest", directorBlock: undefined }, history.slice(0, 2));
+  assert.ok(quiet.at(-1).content.startsWith(THIS_MOMENT_HEADING));
+  assert.ok(quiet.at(-1).content.endsWith(`\n\n${MOMENT_INSTRUCTION}`));
+  const opening = buildDmMessages({ ...plain, momentPlacement: "before-newest", directorBlock: undefined }, []);
+  assert.equal(opening.length, 2);
+  assert.ok(opening[1].content.endsWith(MOMENT_INSTRUCTION));
+});
+
+// What two turns in a row have in common at the start, the part a provider
+// that caches the prompt's start can reuse instead of reading or writing it
+// again.
+function sharedStart(first, second) {
+  const a = JSON.stringify(first);
+  const b = JSON.stringify(second);
+  let index = 0;
+  while (index < a.length && a[index] === b[index]) index += 1;
+  return index;
+}
+
+test("from one turn to the next, the whole earlier transcript is the prompt's unchanged start", () => {
+  const lines = (count) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `m${index + 1}`,
+      seq: index + 1,
+      authorType: index % 2 ? "dm" : "player",
+      characterId: index % 2 ? null : "sheet-1",
+      content: index % 2 ? `The vault answers, passage ${index}. ${"Dust and echoes. ".repeat(40)}` : `I try the next door (${index}).`,
+      intent: null,
+    }));
+  // Turn N answers line 9; turn N+1 answers line 11, after narration 10, and
+  // a roll since then changed the moment.
+  const turnN = lines(9);
+  const turnNext = lines(11);
+  const rolled = [{ characterId: "sheet-1", kind: "skill_check", detail: "perception", total: 9, dc: 12, success: false, visibility: "public", breakdown: { crit: null } }];
+  const stateN = (placement) => ({ ...fightingState(), contextLimitTokens: 131_072, momentPlacement: placement });
+  const stateNext = (placement) => ({ ...stateN(placement), recentRolls: rolled });
+  for (const placement of ["system", "before-newest"]) {
+    const first = buildDmMessages(stateN(placement), turnN);
+    const second = buildDmMessages(stateNext(placement), turnNext);
+    const shared = sharedStart(first, second);
+    // The first prompt up to its own moment: the system message and the
+    // transcript to the last narration (its last two messages are the
+    // moment and the line it answered).
+    const transcriptEnd = JSON.stringify(first.slice(0, -2)).length - 1;
+    if (placement === "system") {
+      assert.ok(shared < JSON.stringify(first[0]).length, "the moment in the system message: not even the system message is shared");
+    } else {
+      assert.ok(shared >= transcriptEnd, `before the newest lines: the system message and the transcript up to the last turn's moment are shared (${shared} of ${transcriptEnd})`);
+      assert.ok(shared / JSON.stringify(second).length > 0.8, "most of the next prompt is reused");
+    }
+  }
+});
+
 // What Claude Code caches as its second system block: everything after the
 // boundary marker in the system prompt file it is given.
 function blockTwo(state, history = []) {

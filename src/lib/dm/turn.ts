@@ -105,7 +105,8 @@ import { takeDirectorArm } from "@/lib/db/director-arms";
 import { listPins } from "@/lib/db/pins";
 import { isStageEnabled } from "@/lib/dm/stages";
 import { renderVariantRules } from "@/lib/dm/rules-logic";
-import { storyContextTokens } from "@/lib/model-client";
+import { customBackendIsPaid, storyContextTokens } from "@/lib/model-client";
+import { pickMomentPlacement } from "@/lib/dm/moment-placement";
 import { restoreMentionedNpcs } from "@/lib/dm/npc-archive";
 import { handleRecallStory } from "@/lib/dm/recall";
 import { handleSearchLore, searchLoreTool } from "@/lib/dm/lore-search";
@@ -506,6 +507,22 @@ export async function startDmTurn(campaignId: string) {
       // start reuses the whole history from one turn to the next; an agent
       // program moves it itself (src/lib/harness/render.ts).
       momentAfterHistory: campaign.settings.textProvider !== "harness" && process.env.DM_MOMENT_AFTER_HISTORY === "1",
+      // A paid public API re-reads the whole transcript at full price, and on
+      // OpenAI's newer models writes it to the cache at 1.25x, every turn the
+      // state above it changes: there the state goes after the transcript up
+      // to the last narration and before the players' newest lines, so the
+      // history is reused and the newest line is still read last
+      // (src/lib/dm/moment-placement.ts). Local models keep the order above.
+      momentPlacement: pickMomentPlacement({
+        provider: campaign.settings.textProvider,
+        paid:
+          campaign.settings.textProvider === "custom" &&
+          customBackendIsPaid(campaign.settings.customBaseUrl, campaign.settings.customApiKey),
+        env: {
+          DM_MOMENT_PLACEMENT: process.env.DM_MOMENT_PLACEMENT,
+          DM_MOMENT_AFTER_HISTORY: process.env.DM_MOMENT_AFTER_HISTORY,
+        },
+      }),
       currentLocation: currentLocation
         ? {
             name: currentLocation.name,

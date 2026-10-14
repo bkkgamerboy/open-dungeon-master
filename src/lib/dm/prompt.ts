@@ -30,6 +30,7 @@ import type { LoreTrace } from "@/lib/dm/world-lore-logic";
 import { renderWorldArcsForPrompt } from "@/lib/dm/world-arc-logic";
 import { renderFactsForPrompt, type FactLike } from "@/lib/dm/fact-logic";
 import { MOMENT_INSTRUCTION, splitAtMoment, THIS_MOMENT_HEADING, THIS_TURN_HEADING } from "@/lib/prompt-boundary";
+import type { MomentPlacement } from "@/lib/dm/moment-placement";
 import { companionMode } from "@/lib/dm/companion-tools";
 import { breakDown, describeInstant, isDark, normalizeClock } from "@/lib/dm/calendar";
 import { describeWeather } from "@/lib/srd/weather";
@@ -180,6 +181,12 @@ export type DmGameState = {
   // agent program's rendering (src/lib/harness/render.ts) moves that part
   // itself, so its prompt leaves it in the system message.
   momentAfterHistory?: boolean;
+  // Or the turn-to-turn part goes after the transcript up to the last
+  // narration and before the players' lines since it (MomentPlacement
+  // "before-newest", src/lib/dm/moment-placement.ts): the history before
+  // it is cached from one turn to the next, and the newest player line is
+  // still the last thing the model reads. Wins over momentAfterHistory.
+  momentPlacement?: MomentPlacement;
   currentLocation?: {
     name: string;
     layoutDescription: string;
@@ -1589,7 +1596,31 @@ export function buildDmMessages(
   };
 
   const system = systemParts.join("\n\n");
-  const { standing, moment } = state.momentAfterHistory ? splitAtMoment(system) : { standing: system, moment: "" };
+  const placement: MomentPlacement = state.momentPlacement ?? (state.momentAfterHistory ? "after-history" : "system");
+  const { standing, moment } = placement === "system" ? { standing: system, moment: "" } : splitAtMoment(system);
+  const director = state.directorBlock ? [{ role: "user" as const, content: state.directorBlock }] : [];
+  if (placement === "before-newest" && moment) {
+    // The transcript up to and including the last narration, then the
+    // moment, then what the players said since. With nothing said since
+    // (an opening, a scene the DM carries on), the moment closes the
+    // prompt as it does after the history, with the instruction to act.
+    let lastNarration = -1;
+    for (let index = historyMessages.length - 1; index >= 0; index -= 1) {
+      if (historyMessages[index].role === "assistant") {
+        lastNarration = index;
+        break;
+      }
+    }
+    const settled = historyMessages.slice(0, lastNarration + 1);
+    const newest = historyMessages.slice(lastNarration + 1);
+    return [
+      { role: "system", content: standing },
+      ...settled,
+      { role: "user", content: newest.length ? moment : `${moment}\n\n${MOMENT_INSTRUCTION}` },
+      ...newest,
+      ...director,
+    ];
+  }
   return [
     { role: "system", content: standing },
     ...historyMessages,
@@ -1598,9 +1629,7 @@ export function buildDmMessages(
     ...(moment ? [{ role: "user" as const, content: `${moment}\n\n${MOMENT_INSTRUCTION}` }] : []),
     // Last, after the newest player line, so the model reads it closest to
     // the point of generation. Omitted entirely when nothing is armed.
-    ...(state.directorBlock
-      ? [{ role: "user" as const, content: state.directorBlock }]
-      : []),
+    ...director,
   ];
 }
 
