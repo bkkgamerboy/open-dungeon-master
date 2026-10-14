@@ -1,7 +1,7 @@
 From f333c366bb41e7466ad0f4df0744fd2367a53788 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 14 Oct 2026 20:07:18 +0800
-Subject: [PATCH 1/2] Protected media: drop the old source while the new one is
+Subject: [PATCH 1/3] Protected media: drop the old source while the new one is
  fetched
 
 A sound given a protected address (narration under /generated-audio/,
@@ -64,7 +64,7 @@ index 47b8d0a..e809928 100644
 From 4167cfb012970b5bd3204d4c4100616ffee08748 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 14 Oct 2026 20:07:18 +0800
-Subject: [PATCH 2/2] Android: offer the phone's text-to-speech to the table as
+Subject: [PATCH 2/3] Android: offer the phone's text-to-speech to the table as
  window.odmSpeech
 
 The mirror of the dictation bridge. SpeechPlugin wraps Android's
@@ -932,6 +932,104 @@ index 0000000..ef7baa0
 +  const target = { dispatchEvent: () => true } as { odmSpeech?: unknown; dispatchEvent(event: Event): boolean };
 +  assert.equal(await installNativeSpeech(fake.plugin, target as never), false);
 +});
+-- 
+2.43.0
+
+
+From ead85f27bb98630d7d78a63651b5bd6de53c55b5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 15 Oct 2026 07:23:42 +0800
+Subject: [PATCH 3/3] Android: keep the page above the keyboard
+
+Capacitor's edge-to-edge margins keep the page between the system bars
+but not above the keyboard, so typing covered the message box. The
+WebView's insets listener now adds the keyboard's height to the bottom
+margin, and the activity asks for adjustResize so that height arrives.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BsPQjebYqr1zAAhxWA3F3b
+---
+ .../android/app/src/main/AndroidManifest.xml  |  4 +++
+ .../opendungeonmaster/app/MainActivity.java   | 35 +++++++++++++++++++
+ 2 files changed, 39 insertions(+)
+
+diff --git a/mobile/android/app/src/main/AndroidManifest.xml b/mobile/android/app/src/main/AndroidManifest.xml
+index f9136d2..98f22ae 100644
+--- a/mobile/android/app/src/main/AndroidManifest.xml
++++ b/mobile/android/app/src/main/AndroidManifest.xml
+@@ -4,6 +4,9 @@
+ 
+     <!-- usesCleartextTraffic: self-hosted servers on a LAN are commonly
+          plain http; the connect flow tries https first. -->
++    <!-- adjustResize on the activity: the keyboard's height reaches the
++         window insets, which MainActivity.keepAboveKeyboard turns into the
++         page's bottom margin, so the box being typed in stays above it. -->
+     <!-- Backups: the profile and server address may follow the user to a
+          new phone, but files/data (the world's database, password hashes,
+          an operator's API key), files/server (the unpacked payload) and the
+@@ -26,6 +29,7 @@
+             android:label="@string/title_activity_main"
+             android:theme="@style/AppTheme.NoActionBarLaunch"
+             android:launchMode="singleTask"
++            android:windowSoftInputMode="adjustResize"
+             android:exported="true">
+ 
+             <intent-filter>
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java
+index 017b55b..df4e3f4 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java
+@@ -2,9 +2,14 @@ package com.opendungeonmaster.app;
+ 
+ import android.graphics.Color;
+ import android.os.Bundle;
++import android.view.View;
++import android.view.ViewGroup;
+ import androidx.activity.EdgeToEdge;
+ import androidx.activity.SystemBarStyle;
++import androidx.core.graphics.Insets;
+ import androidx.core.splashscreen.SplashScreen;
++import androidx.core.view.ViewCompat;
++import androidx.core.view.WindowInsetsCompat;
+ import com.getcapacitor.BridgeActivity;
+ 
+ public class MainActivity extends BridgeActivity {
+@@ -34,5 +39,35 @@ public class MainActivity extends BridgeActivity {
+         registerPlugin(SpeechPlugin.class);
+         registerPlugin(SecretStorePlugin.class);
+         super.onCreate(savedInstanceState);
++        keepAboveKeyboard();
++    }
++
++    // Capacitor's edge-to-edge margins (adjustMarginsForEdgeToEdge "force" in
++    // capacitor.config.ts) keep the page between the status bar and the
++    // navigation bar, but not above the keyboard: an app drawn edge to edge
++    // is no longer resized for it, so the keyboard covered the bottom of the
++    // page, and with it the box being typed in. This replaces Capacitor's
++    // listener, which the bridge installed during super.onCreate, with the
++    // same margins plus the keyboard: the bottom margin is the keyboard's
++    // height while it is up, the navigation bar's otherwise, and the page
++    // resizes into the space above it like a browser's would.
++    private void keepAboveKeyboard() {
++        if (getBridge() == null || getBridge().getWebView() == null) {
++            return;
++        }
++        View webView = getBridge().getWebView();
++        ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
++            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
++            Insets keyboard = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
++            ViewGroup.MarginLayoutParams margins = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
++            margins.leftMargin = bars.left;
++            margins.topMargin = bars.top;
++            margins.rightMargin = bars.right;
++            margins.bottomMargin = Math.max(bars.bottom, keyboard.bottom);
++            view.setLayoutParams(margins);
++            // As Capacitor's does: the page lays itself out inside the margins.
++            return WindowInsetsCompat.CONSUMED;
++        });
++        ViewCompat.requestApplyInsets(webView);
+     }
+ }
 -- 
 2.43.0
 
