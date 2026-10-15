@@ -1,7 +1,7 @@
-From f333c366bb41e7466ad0f4df0744fd2367a53788 Mon Sep 17 00:00:00 2001
+From f9882ec6ecd8cdd0e96af61139841bcfedf7fbda Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 14 Oct 2026 20:07:18 +0800
-Subject: [PATCH 1/3] Protected media: drop the old source while the new one is
+Subject: [PATCH 1/4] Protected media: drop the old source while the new one is
  fetched
 
 A sound given a protected address (narration under /generated-audio/,
@@ -61,10 +61,10 @@ index 47b8d0a..e809928 100644
 2.43.0
 
 
-From 4167cfb012970b5bd3204d4c4100616ffee08748 Mon Sep 17 00:00:00 2001
+From 68f740025050478e6c4001a60eba10efabf855eb Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 14 Oct 2026 20:07:18 +0800
-Subject: [PATCH 2/3] Android: offer the phone's text-to-speech to the table as
+Subject: [PATCH 2/4] Android: offer the phone's text-to-speech to the table as
  window.odmSpeech
 
 The mirror of the dictation bridge. SpeechPlugin wraps Android's
@@ -936,10 +936,10 @@ index 0000000..ef7baa0
 2.43.0
 
 
-From ead85f27bb98630d7d78a63651b5bd6de53c55b5 Mon Sep 17 00:00:00 2001
+From e071526272f02279631c9d4a40d1b758525cdc1f Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 15 Oct 2026 07:23:42 +0800
-Subject: [PATCH 3/3] Android: keep the page above the keyboard
+Subject: [PATCH 3/4] Android: keep the page above the keyboard
 
 Capacitor's edge-to-edge margins keep the page between the system bars
 but not above the keyboard, so typing covered the message box. The
@@ -1030,6 +1030,393 @@ index 017b55b..df4e3f4 100644
 +        ViewCompat.requestApplyInsets(webView);
      }
  }
+-- 
+2.43.0
+
+
+From dd4e4810b5b2391d7ba611032cbdfe767d4e358c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 15 Oct 2026 23:17:32 +0800
+Subject: [PATCH 4/4] Android: keep the phone's world running while the player
+ is in another app
+
+Android freezes an app's processes a few seconds after it leaves the
+screen, and the world's server, a child of the app, froze with it unless
+the world was shared: only sharing started the foreground service. A DM
+turn the AI was answering stopped where it was, so a player who checked
+another app came back to a table still waiting on the DM, the answer
+never arriving. The perf plan already noted it for Wi-Fi hosting
+(docs/perf-and-bugs-plan-1.0.md A, "LAN-only hosting freezes when the app
+is backgrounded").
+
+The service now runs whenever the world does: quietly ("Your world is
+running") while the player plays alone, and as before ("Your world is
+shared", with Stop hosting) while a tunnel is up. Ending a share, by the
+button, by a failure or by cloudflared closing, leaves the quiet
+notification for a world still running; the world stopping (the
+bridge's idle stop, Stop, the server dying) or the app being swiped away
+removes it. Android 12+ refuses a foreground service started from the
+background, so the service starts when the world comes up, its
+notification is replaced in place afterwards, and a refused start leaves
+the world running as before.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01T9z3dvqZUTyMKgtJy4yqUe
+---
+ .../app/LocalWorldPlugin.java                 |  17 +-
+ .../opendungeonmaster/app/ShareTunnel.java    |   3 +-
+ .../opendungeonmaster/app/WorldRuntime.java   |  11 ++
+ .../opendungeonmaster/app/WorldService.java   | 171 ++++++++++++++----
+ 4 files changed, 154 insertions(+), 48 deletions(-)
+
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/LocalWorldPlugin.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/LocalWorldPlugin.java
+index 641d7e8..22ad5e4 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/LocalWorldPlugin.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/LocalWorldPlugin.java
+@@ -25,10 +25,11 @@ import org.json.JSONObject;
+ /**
+  * The bridge's window into the device-hosted world: start it (the Node
+  * child process), stop it, read its status and the tail of its log; and the
+- * share tunnel that puts it on the internet. Playing alone needs no
+- * notification, so the world runs as a plain child of the app; hosting
+- * (sharing) is what starts the foreground service, which keeps the world
+- * and the tunnel alive while the host looks at other apps. Everything else
++ * share tunnel that puts it on the internet. The foreground service runs
++ * whenever the world does (WorldService): quietly while the player plays
++ * alone, and saying the world is shared while a tunnel is up, so neither
++ * the world nor the tunnel is frozen while the player looks at other apps.
++ * Ending a share leaves the quiet notification for the world. Everything else
+  * the shell does with the world (accounts, settings, opening it) goes over
+  * plain HTTP to 127.0.0.1 like any server.
+  *
+@@ -340,15 +341,15 @@ public class LocalWorldPlugin extends Plugin {
+                 result.put("url", url);
+                 call.resolve(result);
+             } catch (ShareTunnel.StoppedException e) {
+-                WorldService.stop(getContext());
++                WorldService.settle(getContext());
+                 call.reject(e.getMessage(), "stopped");
+             } catch (IOException e) {
+                 tunnel().stop();
+-                WorldService.stop(getContext());
++                WorldService.settle(getContext());
+                 call.reject(e.getMessage() != null ? e.getMessage() : "Could not open a public address.");
+             } catch (RuntimeException e) {
+                 tunnel().stop();
+-                WorldService.stop(getContext());
++                WorldService.settle(getContext());
+                 call.reject("Could not open a public address: " + e.getMessage());
+             }
+         }, "odm-share-start");
+@@ -359,7 +360,7 @@ public class LocalWorldPlugin extends Plugin {
+     public void shareStop(PluginCall call) {
+         Thread worker = new Thread(() -> {
+             tunnel().stop();
+-            WorldService.stop(getContext());
++            WorldService.settle(getContext());
+             call.resolve(toJS(tunnel().status()));
+         }, "odm-share-stop");
+         worker.start();
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/ShareTunnel.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/ShareTunnel.java
+index 10b2c57..9da695a 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/ShareTunnel.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/ShareTunnel.java
+@@ -336,7 +336,8 @@ public final class ShareTunnel {
+             String message = "The tunnel closed on its own (cloudflared exit " + code + ", see tunnel.log).";
+             Log.w(TAG, message);
+             emit("error", message);
+-            WorldService.stop(app);
++            // The world itself may still be up for the host.
++            WorldService.settle(app);
+         }
+ 
+         synchronized String await(long timeoutMs) {
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldRuntime.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldRuntime.java
+index 30c0f35..9f9237a 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldRuntime.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldRuntime.java
+@@ -344,6 +344,12 @@ public final class WorldRuntime {
+         }
+     }
+ 
++    /** Whether the world is up and its server alive. */
++    public boolean running() {
++        Process child = process.get();
++        return "running".equals(state) && child != null && child.isAlive();
++    }
++
+     public JSONObject status() {
+         JSONObject info = bundledInfo();
+         JSONObject json = new JSONObject();
+@@ -419,6 +425,11 @@ public final class WorldRuntime {
+                     }
+                     prefs().edit().putInt("port", candidate).apply();
+                     Log.i(TAG, "World running on port " + candidate);
++                    // Android freezes a backgrounded app's processes, this
++                    // server among them, unless a foreground service runs:
++                    // a turn the AI was answering would stop until the
++                    // player came back (WorldService).
++                    WorldService.keepAwake(app);
+                     return;
+                 }
+                 if (stopRequested) throw new StoppedException();
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldService.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldService.java
+index 3d9b5bb..8fbba54 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldService.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldService.java
+@@ -10,19 +10,33 @@ import android.content.Intent;
+ import android.content.pm.ServiceInfo;
+ import android.os.Build;
+ import android.os.IBinder;
++import android.util.Log;
+ import androidx.core.app.NotificationCompat;
+ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
+ 
+ /**
+- * Keeps a shared world alive while the host is elsewhere: Android only lets
+- * a process keep running in the background under a foreground service with
+- * a visible notification. It runs only while the world is shared (a tunnel
+- * is up), which is when other people depend on it; playing alone needs no
+- * notification. The service owns nothing itself: the server child process
+- * lives in {@link WorldRuntime}, the tunnel in {@link ShareTunnel}. "Stop
+- * hosting" on the notification ends the share and leaves the world running
+- * for the host; swiping the app away stops everything.
++ * Keeps the phone's own world alive while the player is in another app.
++ * Android freezes an app's processes a few seconds after it leaves the
++ * screen, the world's server among them (it is a child of the app), unless
++ * the app runs a foreground service with a visible notification. A frozen
++ * server is a DM turn that stops wherever it was: the AI's answer never
++ * arrives, and coming back finds the table still waiting on it.
++ *
++ * So the service runs whenever the world does. Playing alone it is quiet
++ * ("Your world is running"); while the world is shared (a tunnel is up) it
++ * says so and offers "Stop hosting", which ends the share and leaves the
++ * world running for the host. Swiping the app away stops everything, and
++ * the world going to sleep (the bridge's idle stop once the game closes)
++ * takes the notification with it. The service owns nothing itself: the
++ * server child process lives in {@link WorldRuntime}, the tunnel in
++ * {@link ShareTunnel}.
++ *
++ * Android 12 and later only let an app start a foreground service while it
++ * is on screen, so the service is started when the world comes up (the
++ * player is opening it) and afterwards its notification is replaced in
++ * place, never started again; a start Android refuses leaves the world
++ * running as before, only without the notification.
+  *
+  * Every stop waits on a child process (up to five seconds each), so the
+  * service callbacks, which run on the main thread, hand that work to one
+@@ -30,11 +44,14 @@ import java.util.concurrent.Executors;
+  */
+ public class WorldService extends Service {
+ 
++    private static final String TAG = "ODMWorldService";
+     public static final String ACTION_START = "com.opendungeonmaster.app.world.START";
+     public static final String ACTION_STOP = "com.opendungeonmaster.app.world.STOP";
+     public static final String EXTRA_TEXT = "text";
++    public static final String EXTRA_SHARED = "shared";
+     private static final String CHANNEL = "odm-world";
+     private static final int NOTIFICATION_ID = 4201;
++    private static final String SOLO_TEXT = "Your game keeps going while you use other apps.";
+ 
+     /** One lane for the blocking stops, shared across service instances. */
+     private static final ExecutorService WORK = Executors.newSingleThreadExecutor(runnable -> {
+@@ -43,75 +60,149 @@ public class WorldService extends Service {
+         return thread;
+     });
+ 
+-    /** Starts the service, or refreshes its notification text when already running. */
++    private static final int OFF = 0;
++    private static final int SOLO = 1;
++    private static final int SHARED = 2;
++    /** What the running service's notification says; OFF while no service runs. */
++    private static volatile int mode = OFF;
++
++    /** Starts the service for a shared world, or replaces its notification text. */
+     public static void start(Context context, String text) {
+-        Intent intent = new Intent(context, WorldService.class).setAction(ACTION_START).putExtra(EXTRA_TEXT, text);
+-        context.startForegroundService(intent);
++        show(context, text, true);
++    }
++
++    /**
++     * The world is up: keep it running while the player is elsewhere. A
++     * shared world's notification is left as it is.
++     */
++    public static void keepAwake(Context context) {
++        if (mode != OFF) return;
++        show(context, SOLO_TEXT, false);
++    }
++
++    /**
++     * A share ended (stopped, failed or closed on its own): a world still
++     * running keeps the quiet notification; otherwise the service stops.
++     */
++    public static void settle(Context context) {
++        if (WorldRuntime.get(context).running()) {
++            show(context, SOLO_TEXT, false);
++        } else {
++            stop(context);
++        }
+     }
+ 
+     public static void stop(Context context) {
++        // Off at once, so a world that comes straight back up (a restart
++        // after a crash) starts the service again instead of reading it as
++        // still on.
++        mode = OFF;
+         context.stopService(new Intent(context, WorldService.class));
+     }
+ 
++    private static void show(Context context, String text, boolean shared) {
++        Context app = context.getApplicationContext();
++        if (mode != OFF) {
++            // Already in the foreground: the new text replaces the old in
++            // place, which Android allows from the background too.
++            try {
++                ensureChannel(app);
++                app.getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, buildNotification(app, text, shared));
++                mode = shared ? SHARED : SOLO;
++                return;
++            } catch (RuntimeException e) {
++                Log.w(TAG, "Could not update the notification: " + e.getMessage());
++            }
++        }
++        Intent intent = new Intent(app, WorldService.class)
++            .setAction(ACTION_START)
++            .putExtra(EXTRA_TEXT, text)
++            .putExtra(EXTRA_SHARED, shared);
++        try {
++            app.startForegroundService(intent);
++        } catch (RuntimeException e) {
++            // ForegroundServiceStartNotAllowedException: the app is not on
++            // screen. The world runs as it did before this service existed.
++            Log.w(TAG, "Android refused to keep the world running in the background: " + e.getMessage());
++        }
++    }
++
+     @Override
+     public int onStartCommand(Intent intent, int flags, int startId) {
+         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+             Context app = getApplicationContext();
+-            WORK.execute(() -> ShareTunnel.get(app).stop());
+-            stopSelf();
++            WORK.execute(() -> {
++                ShareTunnel.get(app).stop();
++                settle(app);
++            });
+             return START_NOT_STICKY;
+         }
+-        ensureChannel();
++        Context app = getApplicationContext();
++        ensureChannel(app);
+         String text = intent != null ? intent.getStringExtra(EXTRA_TEXT) : null;
++        boolean shared = intent == null || intent.getBooleanExtra(EXTRA_SHARED, true);
+         Notification notification = buildNotification(
+-            text != null && !text.isEmpty() ? text : "Friends can join while this stays on."
++            app,
++            text != null && !text.isEmpty() ? text : (shared ? "Friends can join while this stays on." : SOLO_TEXT),
++            shared
+         );
+-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+-        } else {
+-            startForeground(NOTIFICATION_ID, notification);
++        try {
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
++                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
++            } else {
++                startForeground(NOTIFICATION_ID, notification);
++            }
++        } catch (RuntimeException e) {
++            Log.w(TAG, "Android refused the foreground service: " + e.getMessage());
++            mode = OFF;
++            stopSelf();
++            return START_NOT_STICKY;
+         }
++        mode = shared ? SHARED : SOLO;
+         return START_NOT_STICKY;
+     }
+ 
+-    private void ensureChannel() {
+-        NotificationManager manager = getSystemService(NotificationManager.class);
+-        if (manager.getNotificationChannel(CHANNEL) != null) return;
++    private static void ensureChannel(Context context) {
++        NotificationManager manager = context.getSystemService(NotificationManager.class);
++        // Created again every time, which only updates the name and the
++        // description: the channel used to be for hosting alone.
+         NotificationChannel channel = new NotificationChannel(
+             CHANNEL,
+-            "Hosting a world",
++            "Your world",
+             NotificationManager.IMPORTANCE_LOW
+         );
+-        channel.setDescription("Shown while this device shares your Open Dungeon Master world with friends.");
++        channel.setDescription("Shown while your Open Dungeon Master world runs on this device, so a game keeps going when you switch apps.");
+         manager.createNotificationChannel(channel);
+     }
+ 
+-    private Notification buildNotification(String text) {
+-        Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
++    private static Notification buildNotification(Context context, String text, boolean shared) {
++        Intent open = new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+         PendingIntent tap = PendingIntent.getActivity(
+-            this,
++            context,
+             0,
+             open,
+             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+         );
+-        Intent stopIntent = new Intent(this, WorldService.class).setAction(ACTION_STOP);
+-        PendingIntent stop = PendingIntent.getService(
+-            this,
+-            1,
+-            stopIntent,
+-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+-        );
+-        return new NotificationCompat.Builder(this, CHANNEL)
++        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL)
+             .setSmallIcon(R.drawable.ic_stat_world)
+-            .setContentTitle("Your world is shared")
++            .setContentTitle(shared ? "Your world is shared" : "Your world is running")
+             .setContentText(text)
+             .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
+             .setContentIntent(tap)
+-            .addAction(0, "Stop hosting", stop)
+             .setOngoing(true)
+             .setSilent(true)
+-            .setPriority(NotificationCompat.PRIORITY_LOW)
+-            .build();
++            .setPriority(NotificationCompat.PRIORITY_LOW);
++        if (shared) {
++            Intent stopIntent = new Intent(context, WorldService.class).setAction(ACTION_STOP);
++            PendingIntent stop = PendingIntent.getService(
++                context,
++                1,
++                stopIntent,
++                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
++            );
++            builder.addAction(0, "Stop hosting", stop);
++        }
++        return builder.build();
+     }
+ 
+     @Override
+@@ -121,12 +212,14 @@ public class WorldService extends Service {
+             ShareTunnel.get(app).stop();
+             WorldRuntime.get(app).stop();
+         });
++        mode = OFF;
+         stopSelf();
+         super.onTaskRemoved(rootIntent);
+     }
+ 
+     @Override
+     public void onDestroy() {
++        mode = OFF;
+         Context app = getApplicationContext();
+         WORK.execute(() -> ShareTunnel.get(app).stop());
+         super.onDestroy();
 -- 
 2.43.0
 

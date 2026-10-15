@@ -1,7 +1,7 @@
 # ODM Voice: the Android app with the phone's own narration voice
 
 This folder builds a private Android app from this fork. It is the official
-Open Dungeon Master app with two changes:
+Open Dungeon Master app with these changes:
 
 - **The phone's own voice reads the DM's passages.** Android's built-in
   text-to-speech does the reading, so it's free, starts instantly, works
@@ -12,9 +12,15 @@ Open Dungeon Master app with two changes:
 - **Read aloud no longer jams narration.** Before, pressing Read aloud on an
   earlier passage could leave the player stuck and silent for the rest of the
   session.
+- **The game keeps going in another app.** Android freezes an app a few
+  seconds after it leaves the screen, and the world's server froze with it,
+  so a DM turn in progress never finished. The world now runs under a quiet
+  notification ("Your world is running") whenever it is up, as it already
+  did while shared.
 
 The game-screen half of this lives on this branch. `client.patch` is the
-app's half: the native voice plugin and the media fix. It's applied to the
+app's half: the native voice plugin, the media fix, the keyboard fix and
+the world kept running in the background. It's applied to the
 official app (the `CLIENT_REF` commit) at build time.
 
 ## How a build happens
