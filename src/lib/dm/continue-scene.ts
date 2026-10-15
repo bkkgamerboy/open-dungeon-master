@@ -11,6 +11,7 @@ import { withoutAsides } from "@/lib/dm/claims-logic";
 import { readAsides } from "@/lib/dm/claims";
 import { enqueueDmJob } from "@/lib/dm/queue";
 import { requestDmMessage } from "@/lib/dm/model";
+import { turnStableTools } from "@/lib/dm/turn";
 import { setDmStatus } from "@/lib/dm/status";
 import { stripToolText } from "@/lib/dm/tool-text";
 import { enqueueNarrationAudio } from "@/lib/tts";
@@ -102,6 +103,9 @@ export async function runContinueScene(input: {
         // No tools at all on top of toolChoice "none": a continuation that
         // called a tool would resolve mechanics outside any turn.
         toolChoice: "none",
+        // Nothing callable, but on OpenAI's own API the turn's whole tool
+        // list still goes out, so its cached start of the prompt holds.
+        stableTools: turnStableTools(campaign),
       });
       if (error) {
         failure = "The model is unavailable; try again shortly.";

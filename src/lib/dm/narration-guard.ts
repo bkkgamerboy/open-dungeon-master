@@ -100,6 +100,10 @@ export async function enforceEngineBoundary(
   sheets: readonly CharacterSheet[],
   // What each kept reply was read for, by its persisted text.
   partReads: ReadonlyMap<string, PartRead>,
+  // The turn's whole tool list (src/lib/dm/turn.ts dmTurnToolUnion), sent
+  // with none of it callable so OpenAI's cached start of the turn's prompt
+  // holds for the rewrite too.
+  stableTools?: readonly unknown[],
 ): Promise<SpokenLine[]> {
   const narration = turn.narrationParts.join("\n\n").trim();
   if (!narration) {
@@ -136,7 +140,7 @@ export async function enforceEngineBoundary(
     // No tools: this call exists to rewrite prose, and a tool call here would
     // resolve mechanics a second time. It is the reserved call, so it is
     // made whatever the turn's budget has left.
-    { tools: [], toolChoice: "none", thinking: false },
+    { tools: [], stableTools, toolChoice: "none", thinking: false },
   );
   turn.callIndex += 1;
   if (error) {

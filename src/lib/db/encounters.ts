@@ -330,6 +330,17 @@ export function getActiveEncounter(campaignId: string): Encounter | null {
   return row ? mapEncounter(row) : null;
 }
 
+// Whether the table has ever fought, ended or not. Its DM turns on OpenAI's
+// own API then carry the tools of a fight and of the world between fights
+// on every call (src/lib/dm/turn.ts dmStableTools).
+export function campaignHasFought(campaignId: string): boolean {
+  return Boolean(
+    getDatabase()
+      .prepare(`SELECT 1 FROM encounters WHERE campaign_id = ? AND kind = 'fight' LIMIT 1`)
+      .get(campaignId),
+  );
+}
+
 // The fight that closed last, for a call that arrives after the server has
 // already closed it (src/lib/dm/encounter-tools.ts handleEndEncounter).
 export function getLatestEndedEncounter(campaignId: string): Encounter | null {

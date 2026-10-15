@@ -29,6 +29,13 @@ import {
   readContextWindow,
 } from "@/lib/dm/context-probe-logic";
 import { serverEnv } from "@/lib/server-env";
+import {
+  chatToolChoice,
+  refusesAllowedTools,
+  sendsStableTools,
+  stableToolChoice,
+  type StableToolChoice,
+} from "@/lib/stable-tools";
 import { isPrivateBackendHost } from "@/lib/backend-host";
 import { chatUsage, ollamaUsage, type TokenUsage } from "@/lib/usage/parse";
 import { apiSpeedEligibility } from "@/lib/speed-tier";
@@ -122,6 +129,13 @@ export type UpstreamUsage = {
 export type ChatRequestOptions = {
   tools?: readonly unknown[];
   toolChoice?: "auto" | "none";
+  // Every tool the caller could offer in this conversation, each once and
+  // in an order that does not change (src/lib/dm/turn.ts dmTurnToolUnion).
+  // On OpenAI's own API it is the tool list every call sends, and `tools`
+  // becomes the subset the model may call (tool_choice allowed_tools), so
+  // the start of the prompt, which OpenAI caches, stays the same when the
+  // offer changes (src/lib/stable-tools.ts). Ignored by every other backend.
+  stableTools?: readonly unknown[];
   temperature?: number;
   onDelta?: StreamDeltaHandler;
   timeoutMs?: number;
@@ -271,6 +285,9 @@ const probedContextWindows = new Map<string, number>();
 // when its 400 named one (issue #129), and the body fields it refused, so
 // the next call omits them instead of paying the 400 again.
 const learnedToolRoutes = new Map<string, OpenAiToolRoute>();
+// Backends that refused tool_choice allowed_tools (src/lib/stable-tools.ts),
+// keyed like the routes: sent the offer as the tool list from then on.
+const allowedToolsRefused = new Set<string>();
 const rememberedDrops = new Map<string, Set<string>>();
 
 // llama.cpp and llama-swap expose the real n_ctx the server was launched with
@@ -717,6 +734,19 @@ export async function requestCustomMessage(
     allowLocalOnly: caps.allowLocalOnlySamplers,
     thinking: options.thinking,
   });
+  // On OpenAI's own API the caller's whole tool list goes out, the same on
+  // every call, and this call's offer is the subset the model may call
+  // (src/lib/stable-tools.ts). Null when the list cannot stand in for the
+  // offer, or this backend refused the choice before: the offer goes out
+  // as the tool list, as everywhere else.
+  const steady: StableToolChoice | null =
+    options.stableTools?.length &&
+    sendsStableTools(caps.kind, { DM_STABLE_TOOLS: serverEnv("DM_STABLE_TOOLS") }) &&
+    !allowedToolsRefused.has(routeKey)
+      ? stableToolChoice(options.stableTools, tools ?? [], toolChoice)
+      : null;
+  const sentTools = steady ? options.stableTools : tools;
+  const sentChoice: StableToolChoice = steady ?? toolChoice ?? "auto";
   const requestPayload: Record<string, unknown> = viaResponses
     ? responsesPayload({
         model: resolvedModel,
@@ -724,8 +754,8 @@ export async function requestCustomMessage(
         sampling,
         maxOutputTokens: configuredMaxOutputTokens(),
         stream: Boolean(onDelta),
-        tools,
-        toolChoice,
+        tools: sentTools,
+        toolChoice: sentChoice,
       })
     : {
         model: resolvedModel,
@@ -761,9 +791,9 @@ export async function requestCustomMessage(
     if (!dropped.has(maxTokensField)) {
       requestPayload[maxTokensField] = configuredMaxOutputTokens();
     }
-    if (tools?.length) {
-      requestPayload.tools = tools;
-      requestPayload.tool_choice = toolChoice ?? "auto";
+    if (sentTools?.length) {
+      requestPayload.tools = sentTools;
+      requestPayload.tool_choice = chatToolChoice(sentChoice);
       // A model whose refusal asked for reasoning off: Chat Completions
       // cannot carry function tools alongside reasoning (issue #129). Off
       // this route the field is never sent: gpt-4.1 and the like 400 on it.
@@ -863,9 +893,17 @@ export async function requestCustomMessage(
     // Never back to a route this call was already refused on: there are
     // three routes, so a backend whose refusals contradict each other costs
     // at most two switches, and the last refusal is the answer.
+    // A backend that does not take the allowed-tools choice: the same call
+    // again with the offer as the tool list, and never asked again.
+    if (steady && typeof steady === "object" && refusesAllowedTools(text)) {
+      console.warn(`[model] ${endpoint} refused tool_choice allowed_tools for ${resolvedModel}; sending the offer as the tool list`);
+      allowedToolsRefused.add(routeKey);
+      return requestCustomMessage(trimmedBase, resolvedModel, apiKey, messages, options);
+    }
+
     const askedRoute = toolRouteFromError(text);
     const refusedRoutes = [...(options.refusedRoutes ?? []), route];
-    if (tools?.length && askedRoute && askedRoute !== route && !refusedRoutes.includes(askedRoute)) {
+    if (sentTools?.length && askedRoute && askedRoute !== route && !refusedRoutes.includes(askedRoute)) {
       console.warn(
         `[model] ${endpoint} refused tools for ${resolvedModel}; switching to the "${askedRoute}" route`,
       );
@@ -902,12 +940,13 @@ export async function requestCustomMessage(
     // Some servers don't implement function tools; retry without them.
     // Never on OpenAI, and never for a refusal that names reasoning or the
     // Responses API: those fail loudly below (src/lib/dm/sampling-logic.ts).
-    if (tools?.length && toolsUnsupportedByServer(caps.kind, text)) {
+    if (sentTools?.length && toolsUnsupportedByServer(caps.kind, text)) {
       console.warn(`[model] ${endpoint} refused tools; retrying without them`);
       return requestCustomMessage(trimmedBase, resolvedModel, apiKey, messages, {
         ...options,
         tools: undefined,
         toolChoice: undefined,
+        stableTools: undefined,
       });
     }
 

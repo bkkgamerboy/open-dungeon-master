@@ -18,6 +18,7 @@ import {
   readBody,
 } from "@/lib/backend-fetch";
 import type { SamplingConfig } from "@/lib/dm/sampling-logic";
+import { responsesToolChoice, type StableToolChoice } from "@/lib/stable-tools";
 import { responsesUsage, type TokenUsage } from "@/lib/usage/parse";
 import type {
   ChatMessage,
@@ -190,7 +191,8 @@ export function responsesPayload(input: {
   maxOutputTokens: number;
   stream: boolean;
   tools?: readonly unknown[];
-  toolChoice?: "auto" | "none";
+  // An allowed subset when the whole list is sent (src/lib/stable-tools.ts).
+  toolChoice?: StableToolChoice;
 }): Record<string, unknown> {
   return {
     model: input.model,
@@ -200,7 +202,7 @@ export function responsesPayload(input: {
     store: false,
     ...(input.stream ? { stream: true } : {}),
     ...(input.tools?.length
-      ? { tools: toResponsesTools(input.tools), tool_choice: input.toolChoice ?? "auto" }
+      ? { tools: toResponsesTools(input.tools), tool_choice: responsesToolChoice(input.toolChoice ?? "auto") }
       : {}),
   };
 }

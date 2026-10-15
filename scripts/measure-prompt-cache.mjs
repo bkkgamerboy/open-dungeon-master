@@ -24,10 +24,20 @@
 // share of the window, so the cut from the front is in play. Prints one line
 // per request and the totals, and fails only on a broken run, never on the
 // numbers: scripts/test-prompt-cache.mjs holds the assertions.
+//
+// MEASURE_FIGHT=1 (fight: true) plays a fight in the middle of the run: the
+// third turn's first call starts it and its second narrates, two turns are
+// played inside it, and the sixth ends it the same way. Each of those
+// calls is offered a different tool set from the call before it, the case
+// DM_STABLE_TOOLS=1 is for (src/lib/stable-tools.ts: on by itself for
+// OpenAI's own API; the fake model is local). The totals then also give the
+// cost, in characters of uncached input: written at 1.25x, reused at 0.1x.
+// MEASURE_FOUGHT=1 plays a fight to its end before the run, so the table
+// has fought already.
 import { openWorld } from "./lib/enforce-world.mjs";
-import { fakeModel, reply } from "./lib/enforce-narrator.mjs";
+import { call, fakeModel, reply } from "./lib/enforce-narrator.mjs";
 
-export async function measurePromptCache({ turns = 8, seed = 24, log = true } = {}) {
+export async function measurePromptCache({ turns = 8, seed = 24, log = true, fight = false, fought = false } = {}) {
   const world = await openWorld({ campaign: { description: "A drowned cathedral rises from the salt flats." } });
   const { setStoryArc, setCampaignScene } = await import("../src/lib/db/campaigns.ts");
   const { normalizeStoryArc } = await import("../src/lib/dm/arc-logic.ts");
@@ -69,6 +79,12 @@ export async function measurePromptCache({ turns = 8, seed = 24, log = true } = 
     world.say("player", `I keep walking and watch the horizon, step ${index}.`, hero);
     world.say("dm", narration(index));
   }
+  // MEASURE_FOUGHT=1 (fought: true): a table that fought before this run,
+  // as most tables some way into a campaign have.
+  if (fought) {
+    await world.invoke("start_encounter", { enemies: [{ monster: "goblin" }] });
+    await world.invoke("end_encounter", { outcome: "fled", reason: "the goblin ran" });
+  }
   const model = await fakeModel();
   await model.pointAt(world);
   model.script([]);
@@ -102,6 +118,8 @@ export async function measurePromptCache({ turns = 8, seed = 24, log = true } = 
       ...request.messages.map((message) => `<${message.role}>${typeof message.content === "string" ? message.content : JSON.stringify(message.content)}${message.tool_calls ? JSON.stringify(message.tool_calls) : ""}`),
     ].join("\n");
   const seen = [];
+  // The DM requests as sent, by label, for a test to read.
+  const bodies = new Map();
   const rows = [];
   const account = (label, request) => {
     const text = flat(request);
@@ -119,17 +137,24 @@ export async function measurePromptCache({ turns = 8, seed = 24, log = true } = 
       console.log(`   splits at: ${JSON.stringify(text.slice(Math.max(0, best - 160), best + 120))}`);
     }
     seen.push(text);
+    bodies.set(label, request);
     rows.push({ label, total: text.length, reused, written: text.length - reused });
     if (log) {
       console.log(`${label.padEnd(10)} prompt ${String(text.length).padStart(7)} chars  reused ${String(reused).padStart(7)}  written ${String(text.length - reused).padStart(7)}`);
     }
   };
 
+  // The calls of the turns a fight opens and closes: the tool set changes
+  // between the first and the second.
+  const fightScripts = {
+    2: () => [reply({ calls: [call("start_encounter", { enemies: [{ monster: "goblin", count: 2 }] })] }), reply({ text: narration(300) })],
+    5: () => [reply({ calls: [call("end_encounter", { outcome: "fled", reason: "the goblins run" })] }), reply({ text: narration(301) })],
+  };
   try {
     for (let index = 0; index < turns; index += 1) {
       await moves[index % moves.length]();
       // script() starts the request log afresh.
-      model.script([reply({ text: narration(100 + index) })]);
+      model.script(fight && fightScripts[index] ? fightScripts[index]() : [reply({ text: narration(100 + index) })]);
       const said = await model.turn(world, lines[index % lines.length], hero.id);
       if (!said && log) {
         console.log(`turn ${index + 1}: no narration stored`);
@@ -140,16 +165,24 @@ export async function measurePromptCache({ turns = 8, seed = 24, log = true } = 
     model.close();
     world.close();
   }
-  const sum = (key) => rows.slice(1).reduce((total, row) => total + row[key], 0);
+  // The first request writes everything whatever the order; the rest show it.
+  const after = rows.filter((row) => !/^turn 1\./.test(row.label));
+  const sum = (key) => after.reduce((total, row) => total + row[key], 0);
   const totals = { prompt: sum("total"), reused: sum("reused"), written: sum("written") };
+  totals.cost = Math.round(totals.written * 1.25 + totals.reused * 0.1);
   if (log) {
     console.log(
-      `after the first turn: ${totals.prompt} chars sent, ${totals.reused} reused (${((totals.reused / totals.prompt) * 100).toFixed(0)}%), ${totals.written} written (${((totals.written / totals.prompt) * 100).toFixed(0)}%)`,
+      `after the first turn: ${totals.prompt} chars sent, ${totals.reused} reused (${((totals.reused / totals.prompt) * 100).toFixed(0)}%), ${totals.written} written (${((totals.written / totals.prompt) * 100).toFixed(0)}%), costing ${totals.cost} chars of uncached input`,
     );
   }
-  return { rows, totals };
+  return { rows, totals, bodies };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  await measurePromptCache({ seed: Number(process.env.MEASURE_SEED || 24), turns: Number(process.env.MEASURE_TURNS || 8) });
+  await measurePromptCache({
+    seed: Number(process.env.MEASURE_SEED || 24),
+    turns: Number(process.env.MEASURE_TURNS || 8),
+    fight: process.env.MEASURE_FIGHT === "1",
+    fought: process.env.MEASURE_FOUGHT === "1",
+  });
 }

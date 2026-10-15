@@ -106,6 +106,8 @@ import { listPins } from "@/lib/db/pins";
 import { isStageEnabled } from "@/lib/dm/stages";
 import { renderVariantRules } from "@/lib/dm/rules-logic";
 import { customBackendIsPaid, storyContextTokens } from "@/lib/model-client";
+import { endpointKind } from "@/lib/dm/sampling-logic";
+import { sendsStableTools, uniqueTools } from "@/lib/stable-tools";
 import { pickMomentPlacement } from "@/lib/dm/moment-placement";
 import { restoreMentionedNpcs } from "@/lib/dm/npc-archive";
 import { handleRecallStory } from "@/lib/dm/recall";
@@ -192,7 +194,7 @@ import {
   COMPANION_TOOL_NAMES,
   companionTools,
 } from "@/lib/dm/companion-tools";
-import { getActiveEncounter, listEnemies, type Encounter } from "@/lib/db/encounters";
+import { campaignHasFought, getActiveEncounter, listEnemies, type Encounter } from "@/lib/db/encounters";
 import { getBattleMapForEncounter, getTokenByRef, listTokens } from "@/lib/db/battle-maps";
 import { pcMoveBudget } from "@/lib/battlemap/view";
 import { serializeMapForPrompt } from "@/lib/battlemap/serialize";
@@ -793,6 +795,17 @@ export function dmTurnToolTokens(campaign: Campaign): number {
   if (campaign.settings.textProvider === "harness") {
     return estimateTokens(JSON.stringify(toMcpTools(dmTurnToolCatalogue(campaign, imageEnabled, leanTools))));
   }
+  // OpenAI's own API is sent one list on every call (dmStableTools): for a
+  // table that has fought, every tool. The turn a table's first fight opens
+  // in is packed for the larger set and sent every tool from that fight's
+  // start, a few thousand tokens over, which OpenAI's window has room for.
+  if (
+    campaign.settings.textProvider === "custom" &&
+    sendsStableTools(endpointKind(campaign.settings.customBaseUrl), { DM_STABLE_TOOLS: process.env.DM_STABLE_TOOLS }) &&
+    campaignHasFought(campaign.id)
+  ) {
+    return estimateTokens(JSON.stringify(dmTurnToolUnion(campaign, imageEnabled, leanTools)));
+  }
   return Math.max(
     estimateTokens(JSON.stringify(dmTurnTools(campaign, false, imageEnabled, leanTools))),
     estimateTokens(JSON.stringify(dmTurnTools(campaign, true, imageEnabled, leanTools))),
@@ -808,6 +821,44 @@ export function dmTurnToolCatalogue(campaign: Campaign, imageEnabled: boolean, l
     ...dmTurnTools(campaign, false, imageEnabled, leanTools),
     ...dmTurnTools(campaign, true, imageEnabled, leanTools),
   ];
+}
+
+// Every tool the table could be offered, in a fight or out of one, each
+// once and always in this order.
+export function dmTurnToolUnion(campaign: Campaign, imageEnabled: boolean, leanTools: boolean): unknown[] {
+  return uniqueTools(dmTurnToolCatalogue(campaign, imageEnabled, leanTools));
+}
+
+// The one tool list a table's DM calls send to OpenAI's own API, with each
+// call's offer as the subset the model may call (ChatRequestOptions
+// .stableTools, src/lib/stable-tools.ts). The list is the start of the
+// prompt OpenAI caches, and the set offered changes when a fight begins or
+// ends and is empty on a call with its tools closed; each of those calls
+// wrote the rules and the whole transcript to the cache again at 1.25x.
+// Every tool, for a table that has fought: a fight then opens and closes
+// with the cache intact, for the price of reading the other set's
+// definitions from it on every call. A table that never has, a game of
+// talk and travel, pays nothing for tools it would not use: its list is
+// the set offered between fights, and only a call with its tools closed
+// changes, to none of them callable. Measured on a scripted evening of
+// seven turns with one short fight (scripts/measure-prompt-cache.mjs
+// MEASURE_FIGHT=1): 42% less spent on the prompt; with no fight, every
+// tool would have cost 20% more.
+export function dmStableTools(campaign: Campaign, imageEnabled: boolean, leanTools: boolean): unknown[] {
+  return campaignHasFought(campaign.id)
+    ? dmTurnToolUnion(campaign, imageEnabled, leanTools)
+    : dmTurnTools(campaign, false, imageEnabled, leanTools);
+}
+
+// The same list for the calls that replay a turn's conversation outside its
+// loop (the tools-closed rescue, the owed whisper replies, the narration
+// rewrite, a reroll, a continue), from the same settings the loop reads.
+export function turnStableTools(campaign: Campaign): unknown[] {
+  return dmStableTools(
+    campaign,
+    Boolean(campaign.settings.imageGenerationEnabled && campaign.settings.autoImages),
+    process.env.DM_LEAN_TOOLS === "1",
+  );
 }
 
 function offersTool(tools: unknown[], name: string): boolean {
@@ -911,6 +962,7 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
     });
     const { message, error, finishReason } = await requestDmMessage(campaign.settings, turn.conversation, {
       tools,
+      stableTools: dmStableTools(campaign, imageEnabled, leanTools),
       harness: {
         campaignId,
         catalogue: dmTurnToolCatalogue(campaign, imageEnabled, leanTools),
@@ -1558,7 +1610,7 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
     // the encounter as it now stands, and spend the one call held in
     // reserve for it (outside MAX_MODEL_CALLS) on a rewrite when they
     // disagree. Its reads also say who speaks the narration's lines.
-    spoken = await enforceEngineBoundary(campaign, turn, sheets, partReads);
+    spoken = await enforceEngineBoundary(campaign, turn, sheets, partReads, turnStableTools(campaign));
   }
   finalize(context, turn, failed, spoken);
   if (!failed) {
@@ -1722,6 +1774,9 @@ async function narrateAfterToolLeak(context: TurnContext, turn: DmTurn) {
     [...turn.conversation, { role: "user", content: TOOLS_CLOSED_PROMPT }],
     {
       tools: [],
+      // On OpenAI's own API the whole list with no tool callable, so the
+      // cached start of the turn's prompt still holds.
+      stableTools: turnStableTools(campaign),
       toolChoice: "none",
       harness: { campaignId, turn: true },
       thinking: false,
@@ -1802,7 +1857,7 @@ async function ensureWhisperReplies(context: TurnContext, turn: DmTurn) {
         content: `[System] You have not yet privately answered these player messages. Reply to each one now using the send_whisper tool addressed to that character. Refuse any out-of-character request for levels, XP, perks, items, or abilities in-fiction, but resolve legitimate secret actions. Do not narrate anything to the shared table.\n${owed}`,
       },
     ],
-    { tools: [sendWhisperTool], toolChoice: "auto", thinking: true },
+    { tools: [sendWhisperTool], stableTools: turnStableTools(campaign), toolChoice: "auto", thinking: true },
   );
   const xmlSalvage = salvageXmlToolCalls(extractReplyText(message?.content));
   const jsonSalvage = salvageJsonToolCalls(xmlSalvage.text, [sendWhisperTool]);

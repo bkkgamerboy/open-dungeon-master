@@ -221,7 +221,13 @@ assert.ok(leak.text.includes(NARRATION), `expected narration after a leaked last
 assert.equal(leak.calls, MAX_MODEL_CALLS + 1);
 assert.equal(leak.requests[MAX_MODEL_CALLS - 1].tool_choice, "none");
 const rescue = leak.requests[MAX_MODEL_CALLS];
-assert.equal(rescue.tools, undefined, "the rescue call offers no tools");
+if (process.env.DM_STABLE_TOOLS === "1") {
+  // OpenAI's own API keeps one tool list on every call (src/lib/stable-tools.ts).
+  assert.deepEqual(rescue.tools, leak.requests[0].tools, "the rescue call keeps the turn's tool list");
+  assert.equal(rescue.tool_choice, "none", "with none of it callable");
+} else {
+  assert.equal(rescue.tools, undefined, "the rescue call offers no tools");
+}
 assert.match(rescue.messages.at(-1).content, /Tools are closed for this turn/);
 for (const request of leak.requests) {
   assertPaired(request);
