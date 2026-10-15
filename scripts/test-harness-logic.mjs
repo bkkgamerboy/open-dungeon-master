@@ -409,15 +409,17 @@ test("a chat model reads the turn-to-turn state after the transcript, the same t
 
 const { pickMomentPlacement } = await import("../src/lib/dm/moment-placement.ts");
 
-test("a paid public API reads the moment before the newest lines; local models and agents keep their order", () => {
-  assert.equal(pickMomentPlacement({ provider: "custom", paid: true }), "before-newest");
+test("a paid public API reads the game state before the newest lines; local models and agents keep their order", () => {
+  assert.equal(pickMomentPlacement({ provider: "custom", paid: true }), "state-before-newest");
   assert.equal(pickMomentPlacement({ provider: "custom", paid: false }), "system", "a model on this machine or the LAN");
   assert.equal(pickMomentPlacement({ provider: "local", paid: false }), "system");
   assert.equal(pickMomentPlacement({ provider: "harness", paid: true }), "system", "an agent program renders its own turn");
   assert.equal(pickMomentPlacement({ provider: "local", paid: false, env: { DM_MOMENT_AFTER_HISTORY: "1" } }), "after-history");
   assert.equal(pickMomentPlacement({ provider: "custom", paid: true, env: { DM_MOMENT_PLACEMENT: "system" } }), "system", "an operator who measured otherwise");
   assert.equal(pickMomentPlacement({ provider: "custom", paid: false, env: { DM_MOMENT_PLACEMENT: "Before-Newest " } }), "before-newest");
-  assert.equal(pickMomentPlacement({ provider: "custom", paid: true, env: { DM_MOMENT_PLACEMENT: "nonsense" } }), "before-newest");
+  assert.equal(pickMomentPlacement({ provider: "custom", paid: true, env: { DM_MOMENT_PLACEMENT: "nonsense" } }), "state-before-newest");
+  assert.equal(pickMomentPlacement({ provider: "custom", paid: true, env: { DM_MOMENT_PLACEMENT: "before-newest" } }), "before-newest", "the moment alone, as before");
+  assert.equal(pickMomentPlacement({ provider: "local", paid: false, env: { DM_MOMENT_PLACEMENT: "state-before-newest" } }), "state-before-newest");
 });
 
 test("before the newest lines: the same text, the moment after the last narration, the newest player line still last", () => {
@@ -496,6 +498,106 @@ test("from one turn to the next, the whole earlier transcript is the prompt's un
       assert.ok(shared / JSON.stringify(second).length > 0.8, "most of the next prompt is reused");
     }
   }
+});
+
+test("the game state before the newest lines: the rules alone in the system message, the same text, the newest player line still last", () => {
+  const history = [
+    { id: "m1", seq: 1, authorType: "player", characterId: "sheet-1", content: "I listen at the chapel door.", intent: null },
+    { id: "m2", seq: 2, authorType: "dm", characterId: null, content: "Chanting, low and wet.", intent: null },
+    { id: "m3", seq: 3, authorType: "player", characterId: "sheet-1", content: "I kick the door in.", intent: null },
+  ];
+  const plain = { ...fightingState(), contextLimitTokens: 131_072, directorBlock: "DIRECTOR: the bell rings once." };
+  const placed = { ...plain, momentPlacement: "state-before-newest" };
+  const before = buildDmMessages(plain, history);
+  const after = buildDmMessages(placed, history);
+  assert.equal(after.length, before.length + 1, "one more message: the game state");
+  assert.ok(!after[0].content.includes("=== GAME STATE"), "no game state in the system message");
+  assert.ok(after[0].content.includes(THIS_TURN_HEADING), "the rules, to the turn heading and the rules that switch on in a fight");
+  assert.ok(after[0].content.includes("Combat rules (an encounter is active):"), "the rules a fight switches on stay with the rules");
+  assert.deepEqual(after.slice(1, 3), before.slice(1, 3), "the transcript up to the last narration, untouched");
+  const state = after[3];
+  assert.equal(state.role, "user");
+  assert.ok(state.content.startsWith("=== GAME STATE (authoritative; never contradict) ==="), "the whole game state, standing part first");
+  assert.ok(state.content.includes(THIS_MOMENT_HEADING), "and its moment");
+  assert.ok(state.content.endsWith("=== END GAME STATE ==="), "no instruction: the player's line follows it");
+  assert.deepEqual(after[4], before[3], "the newest player line, after the game state");
+  assert.equal(after.at(-1).content, "DIRECTOR: the bell rings once.", "the director's note stays last");
+  assert.equal(`${after[0].content}\n\n${state.content}`, before[0].content, "only the order changes, byte for byte");
+  assert.deepEqual(plain.contextTrace, placed.contextTrace, "the budget and the trace are the same while the transcript fits");
+
+  const quiet = buildDmMessages({ ...placed, directorBlock: undefined }, history.slice(0, 2));
+  assert.ok(quiet.at(-1).content.startsWith("=== GAME STATE"));
+  assert.ok(quiet.at(-1).content.endsWith(`\n\n${MOMENT_INSTRUCTION}`), "nothing said since: the game state closes the prompt with the instruction");
+});
+
+test("from one turn to the next, a changed scene costs the game state, not the transcript", () => {
+  const lines = (count) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `m${index + 1}`,
+      seq: index + 1,
+      authorType: index % 2 ? "dm" : "player",
+      characterId: index % 2 ? null : "sheet-1",
+      content: index % 2 ? `The vault answers, passage ${index}. ${"Dust and echoes. ".repeat(40)}` : `I try the next door (${index}).`,
+      intent: null,
+    }));
+  // Between the turns the scene line changed and a roll was made: the
+  // standing state and the moment both moved, as they do on most turns.
+  const base = fightingState();
+  const rolled = [{ characterId: "sheet-1", kind: "skill_check", detail: "perception", total: 9, dc: 12, success: false, visibility: "public", breakdown: { crit: null } }];
+  const stateN = (placement) => ({ ...base, contextLimitTokens: 131_072, momentPlacement: placement });
+  const stateNext = (placement) => ({
+    ...stateN(placement),
+    campaign: { ...base.campaign, scene: "The vault door grinds open on a stair." },
+    recentRolls: rolled,
+  });
+  const first = (placement) => buildDmMessages(stateN(placement), lines(9));
+  const second = (placement) => buildDmMessages(stateNext(placement), lines(11));
+  const moved = first("before-newest");
+  assert.ok(sharedStart(moved, second("before-newest")) < JSON.stringify(moved[0]).length, "the moment alone moved: the changed scene still splits the system message");
+  const placed = first("state-before-newest");
+  const next = second("state-before-newest");
+  const transcriptEnd = JSON.stringify(placed.slice(0, -2)).length - 1;
+  const shared = sharedStart(placed, next);
+  assert.ok(shared >= transcriptEnd, `the rules and the transcript up to the last turn's game state are shared (${shared} of ${transcriptEnd})`);
+  assert.ok(shared / JSON.stringify(next).length > 0.8, "most of the next prompt is reused");
+});
+
+const { fitHistory, HISTORY_CUT_STEP } = await import("../src/lib/dm/context-budget.ts");
+
+test("a full transcript is cut from the front in steps, so its start holds from one turn to the next", () => {
+  // Messages of 100 tokens each against an allowance of 3,000: the plain cut
+  // keeps the newest 30 and drops one more from the front with each message.
+  const transcript = (count) =>
+    Array.from({ length: count }, (_, index) => ({ id: `m${index + 1}`, seq: index + 1, text: "x".repeat(400) }));
+  const firsts = { plain: new Set(), stepped: new Set() };
+  const run = (entry) => Math.floor(entry.seq / HISTORY_CUT_STEP);
+  for (let count = 40; count < 40 + HISTORY_CUT_STEP; count += 1) {
+    const all = transcript(count);
+    const plain = fitHistory(all, 3_000);
+    const stepped = fitHistory(all, 3_000, { ceiling: 10_000 });
+    assert.equal(plain.kept.length, 30);
+    assert.ok(stepped.kept.length >= plain.kept.length, "never fewer messages than the plain cut");
+    assert.ok(stepped.kept.length < plain.kept.length + HISTORY_CUT_STEP, "at most a run more");
+    assert.equal(stepped.kept.at(-1).id, `m${count}`, "the newest message is always kept");
+    assert.ok(!stepped.dropped || run(all[stepped.dropped]) > run(all[stepped.dropped - 1]), "the cut falls where a run starts");
+    assert.equal(stepped.dropped + stepped.kept.length, count);
+    assert.equal(stepped.tokens, stepped.kept.length * 100);
+    firsts.plain.add(plain.kept[0].id);
+    firsts.stepped.add(stepped.kept[0].id);
+  }
+  assert.equal(firsts.plain.size, HISTORY_CUT_STEP, "the plain cut moves the start on every message");
+  assert.ok(firsts.stepped.size <= 2, `the stepped cut moves it at most once a run (${firsts.stepped.size})`);
+
+  // Never past the ceiling: going back would pass it, so the cut goes
+  // forward to the next run instead.
+  const tight = fitHistory(transcript(45), 3_000, { ceiling: 3_050 });
+  assert.ok(tight.tokens <= 3_050);
+  assert.equal(tight.kept[0].seq % HISTORY_CUT_STEP, 0, "forward to where the next run starts");
+  // A transcript that fits is left whole, and entries without seqs are cut
+  // as before.
+  assert.equal(fitHistory(transcript(20), 3_000, { ceiling: 10_000 }).kept.length, 20);
+  const noSeqs = transcript(40).map(({ id, text }) => ({ id, text }));
+  assert.deepEqual(fitHistory(noSeqs, 3_000, { ceiling: 10_000 }), fitHistory(noSeqs, 3_000));
 });
 
 // What Claude Code caches as its second system block: everything after the

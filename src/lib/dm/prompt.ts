@@ -29,7 +29,7 @@ import type { ArcTrace } from "@/lib/dm/arc-relevance";
 import type { LoreTrace } from "@/lib/dm/world-lore-logic";
 import { renderWorldArcsForPrompt } from "@/lib/dm/world-arc-logic";
 import { renderFactsForPrompt, type FactLike } from "@/lib/dm/fact-logic";
-import { MOMENT_INSTRUCTION, splitAtMoment, THIS_MOMENT_HEADING, THIS_TURN_HEADING } from "@/lib/prompt-boundary";
+import { GAME_STATE_HEADING, MOMENT_INSTRUCTION, splitAtMoment, THIS_MOMENT_HEADING, THIS_TURN_HEADING } from "@/lib/prompt-boundary";
 import type { MomentPlacement } from "@/lib/dm/moment-placement";
 import { companionMode } from "@/lib/dm/companion-tools";
 import { breakDown, describeInstant, isDark, normalizeClock } from "@/lib/dm/calendar";
@@ -186,6 +186,8 @@ export type DmGameState = {
   // "before-newest", src/lib/dm/moment-placement.ts): the history before
   // it is cached from one turn to the next, and the newest player line is
   // still the last thing the model reads. Wins over momentAfterHistory.
+  // "state-before-newest" moves the whole game state there, and cuts the
+  // transcript from the front in steps, so the transcript is what is cached.
   momentPlacement?: MomentPlacement;
   currentLocation?: {
     name: string;
@@ -655,7 +657,7 @@ export function buildGameStateBlock(state: DmGameState): string {
   // (src/lib/prompt-boundary.ts). Sorted by how often each section changed
   // between the turns of recorded sessions.
   const sections = [
-    "=== GAME STATE (authoritative; never contradict) ===",
+    GAME_STATE_HEADING,
     `Campaign: ${campaign.title} | Difficulty: ${campaign.difficulty}${campaign.theme ? ` | Setting: ${campaign.theme}` : ""}`,
   ];
   const moment: string[] = [];
@@ -1484,7 +1486,16 @@ export function buildDmMessages(
     0,
     Math.min(budgets.history, usableTokens(state.contextLimitTokens) - fixedTokens),
   );
-  const fitted = fitHistory(uncovered.kept, historyAllowance);
+  const placement: MomentPlacement = state.momentPlacement ?? (state.momentAfterHistory ? "after-history" : "system");
+  // With the game state after the transcript, the transcript is the start a
+  // caching provider reuses, so it is cut in steps (fitHistory).
+  const fitted = fitHistory(
+    uncovered.kept,
+    historyAllowance,
+    placement === "state-before-newest"
+      ? { ceiling: Math.max(historyAllowance, usableTokens(state.contextLimitTokens) - fixedTokens) }
+      : undefined,
+  );
   const keptIds = new Set(fitted.kept.map((entry) => entry.id));
   const historyMessages: ChatMessage[] = uncovered.kept
     .filter((entry) => keptIds.has(entry.id))
@@ -1596,14 +1607,21 @@ export function buildDmMessages(
   };
 
   const system = systemParts.join("\n\n");
-  const placement: MomentPlacement = state.momentPlacement ?? (state.momentAfterHistory ? "after-history" : "system");
-  const { standing, moment } = placement === "system" ? { standing: system, moment: "" } : splitAtMoment(system);
+  // The whole game state moves with state-before-newest: the system message
+  // is then the rules alone (the game state block is the last system part).
+  const { standing, moment } =
+    placement === "system"
+      ? { standing: system, moment: "" }
+      : placement === "state-before-newest"
+        ? { standing: systemParts.slice(0, -1).join("\n\n"), moment: gameStateBlock }
+        : splitAtMoment(system);
   const director = state.directorBlock ? [{ role: "user" as const, content: state.directorBlock }] : [];
-  if (placement === "before-newest" && moment) {
+  if ((placement === "before-newest" || placement === "state-before-newest") && moment) {
     // The transcript up to and including the last narration, then the
-    // moment, then what the players said since. With nothing said since
-    // (an opening, a scene the DM carries on), the moment closes the
-    // prompt as it does after the history, with the instruction to act.
+    // moment (or the whole game state), then what the players said since.
+    // With nothing said since (an opening, a scene the DM carries on), it
+    // closes the prompt as the moment does after the history, with the
+    // instruction to act.
     let lastNarration = -1;
     for (let index = historyMessages.length - 1; index >= 0; index -= 1) {
       if (historyMessages[index].role === "assistant") {

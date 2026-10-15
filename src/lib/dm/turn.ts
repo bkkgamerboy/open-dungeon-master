@@ -509,10 +509,11 @@ export async function startDmTurn(campaignId: string) {
       momentAfterHistory: campaign.settings.textProvider !== "harness" && process.env.DM_MOMENT_AFTER_HISTORY === "1",
       // A paid public API re-reads the whole transcript at full price, and on
       // OpenAI's newer models writes it to the cache at 1.25x, every turn the
-      // state above it changes: there the state goes after the transcript up
-      // to the last narration and before the players' newest lines, so the
-      // history is reused and the newest line is still read last
-      // (src/lib/dm/moment-placement.ts). Local models keep the order above.
+      // state above it changes: there the whole game state goes after the
+      // transcript up to the last narration and before the players' newest
+      // lines, so the history is reused and the newest line is still read
+      // last (src/lib/dm/moment-placement.ts). Local models keep the order
+      // above.
       momentPlacement: pickMomentPlacement({
         provider: campaign.settings.textProvider,
         paid:

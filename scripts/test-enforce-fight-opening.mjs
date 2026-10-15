@@ -26,7 +26,7 @@ const { test, finish } = suite("test-enforce-fight-opening");
 const world = await openWorld({ gameSettings: { ttsEnabled: false } });
 const kit = await combatKit(world);
 const { unrolledFigure, unrolledDamagePrompt } = await import("../src/lib/dm/engine-boundary.ts");
-const { THIS_MOMENT_HEADING } = await import("../src/lib/prompt-boundary.ts");
+const { GAME_STATE_HEADING, THIS_MOMENT_HEADING } = await import("../src/lib/prompt-boundary.ts");
 const { getBattleMapForEncounter, listTokens } = await import("../src/lib/db/battle-maps.ts");
 const { runAsk } = await import("../src/lib/dm/ask.ts");
 
@@ -57,6 +57,9 @@ await test("A damage figure no tool rolled is found; no claim, or a figure alrea
   // A chat model reads the game state's turn-to-turn part as a user message; its numbers are still no table note.
   const moment = [...input, { role: "user", content: `${THIS_MOMENT_HEADING}\nRecent rolls:\n- Alden Veyr: damage rolled 8\n\n=== END GAME STATE ===` }];
   assert.equal(unrolledFigure([EIGHT], moment), "8 damage.");
+  // And a paid API reads the whole game state there, standing part first.
+  const state = [...input, { role: "user", content: `${GAME_STATE_HEADING}\n\nParty:\n- Alden Veyr HP 8/10\n\n${THIS_MOMENT_HEADING}\n\n=== END GAME STATE ===` }];
+  assert.equal(unrolledFigure([EIGHT], state), "8 damage.");
 });
 
 // ---- the turn loop ----

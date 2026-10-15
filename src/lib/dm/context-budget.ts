@@ -315,7 +315,12 @@ export function packBlocks(
 // blocks it is trimmed newest-first: keep taking messages backward until the
 // allowance runs out. Mirrors what the old character-budget walk did, with
 // tokens instead of characters and a reported cut point.
-export type HistoryEntry = { id: string; text: string };
+export type HistoryEntry = { id: string; text: string; seq?: number };
+
+// Where a stepped cut may fall (fitHistory's `steps`): the transcript starts
+// at a message whose seq opens a run of this many, so its start moves once
+// every run, about every six turns, instead of on every turn.
+export const HISTORY_CUT_STEP = 12;
 
 export type HistoryFit = {
   kept: HistoryEntry[];
@@ -343,7 +348,22 @@ export function cutCoveredHistory<T extends { seq: number }>(
   return { kept: entries.slice(cut), cut };
 }
 
-export function fitHistory(entries: HistoryEntry[], allowanceTokens: number): HistoryFit {
+// With `steps`, a transcript over its allowance is cut in steps rather than
+// a message at a time, for a provider that caches the prompt's start
+// (src/lib/dm/moment-placement.ts state-before-newest): cut a message at a
+// time, the transcript's first message changes on every turn once it is
+// full, and everything after it is read, and written to the cache, again.
+// The cut moves back to the start of the HISTORY_CUT_STEP run of seqs its
+// first kept message falls in, so the start holds until that message's run
+// is passed. That keeps up to a run of messages more than the allowance and
+// never fewer than the plain cut, but never past `steps.ceiling` (what the
+// window leaves the transcript): when going back would pass it, the cut goes
+// forward to the next run instead, dropping the rest of this one.
+export function fitHistory(
+  entries: HistoryEntry[],
+  allowanceTokens: number,
+  steps?: { ceiling: number },
+): HistoryFit {
   const kept: HistoryEntry[] = [];
   let tokens = 0;
   for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -358,5 +378,21 @@ export function fitHistory(entries: HistoryEntry[], allowanceTokens: number): Hi
     kept.unshift(entry);
     tokens += cost;
   }
-  return { kept, dropped: entries.length - kept.length, tokens };
+  const dropped = entries.length - kept.length;
+  const firstSeq = kept[0]?.seq;
+  if (!steps || !dropped || firstSeq === undefined || entries.some((entry) => entry.seq === undefined)) {
+    return { kept, dropped, tokens };
+  }
+  const run = Math.floor(firstSeq / HISTORY_CUT_STEP);
+  const runOf = (entry: HistoryEntry) => Math.floor((entry.seq as number) / HISTORY_CUT_STEP);
+  const cost = (from: number) => entries.slice(from).reduce((sum, entry) => sum + estimateTokens(entry.text), 0);
+  const back = entries.findIndex((entry) => runOf(entry) === run);
+  if (back >= 0 && cost(back) <= steps.ceiling) {
+    return { kept: entries.slice(back), dropped: back, tokens: cost(back) };
+  }
+  const ahead = entries.findIndex((entry) => runOf(entry) > run);
+  if (ahead >= 0) {
+    return { kept: entries.slice(ahead), dropped: ahead, tokens: cost(ahead) };
+  }
+  return { kept, dropped, tokens };
 }

@@ -10,6 +10,13 @@
 // harness tiers share it without importing each other.
 export const THIS_TURN_HEADING = "=== THIS TURN ===";
 
+// Opens the game state (src/lib/dm/prompt.ts buildGameStateBlock). A paid
+// API's prompt reads the whole block as a user message after the transcript
+// (src/lib/dm/moment-placement.ts state-before-newest), and the guards that
+// tell the game state from what the table said know it by this heading
+// there (src/lib/dm/engine-boundary.ts unrolledFigure).
+export const GAME_STATE_HEADING = "=== GAME STATE (authoritative; never contradict) ===";
+
 // Opens the part of the game state that changes from one turn to the next
 // (src/lib/dm/prompt.ts buildGameStateBlock); it runs to the end of the
 // system prompt, so the rules and the standing state before it stay the same
