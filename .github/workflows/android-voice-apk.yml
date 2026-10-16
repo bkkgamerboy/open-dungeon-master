@@ -95,6 +95,11 @@ jobs:
       - name: Install client dependencies
         working-directory: client
         run: npm ci
+      # Which fetches go to the phone's world: a file the page built
+      # (blob:) must stay with the page, or exports fail on the phone.
+      - name: Shell fetch tests
+        working-directory: client
+        run: npx tsc -p tsconfig.main.json && node --test tests/host-fetch.test.mjs
       - name: Install server dependencies
         working-directory: open-dungeon-master
         run: npm ci

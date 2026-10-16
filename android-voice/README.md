@@ -17,10 +17,14 @@ Open Dungeon Master app with these changes:
   so a DM turn in progress never finished. The world now runs under a quiet
   notification ("Your world is running") whenever it is up, as it already
   did while shared.
+- **Exports save on the phone.** The character sheet PDF, character export
+  and other files the game builds itself used to fail with "Failed to
+  execute 'fetch' on 'Window'". They now open the phone's share sheet, to
+  save to Files or Drive or send on.
 
 The game-screen half of this lives on this branch. `client.patch` is the
-app's half: the native voice plugin, the media fix, the keyboard fix and
-the world kept running in the background. It's applied to the
+app's half: the native voice plugin, the media fix, the keyboard fix, the
+world kept running in the background and the export fix. It's applied to the
 official app (the `CLIENT_REF` commit) at build time.
 
 ## How a build happens
