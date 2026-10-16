@@ -1,7 +1,7 @@
-From f9882ec6ecd8cdd0e96af61139841bcfedf7fbda Mon Sep 17 00:00:00 2001
+From 91acb5279d4b11879435121dbf6ed0ead4ac5fca Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 14 Oct 2026 20:07:18 +0800
-Subject: [PATCH 1/4] Protected media: drop the old source while the new one is
+Subject: [PATCH 1/5] Protected media: drop the old source while the new one is
  fetched
 
 A sound given a protected address (narration under /generated-audio/,
@@ -61,10 +61,10 @@ index 47b8d0a..e809928 100644
 2.43.0
 
 
-From 68f740025050478e6c4001a60eba10efabf855eb Mon Sep 17 00:00:00 2001
+From ac442cfb50a10eec971f067bd9123bcdab116762 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 14 Oct 2026 20:07:18 +0800
-Subject: [PATCH 2/4] Android: offer the phone's text-to-speech to the table as
+Subject: [PATCH 2/5] Android: offer the phone's text-to-speech to the table as
  window.odmSpeech
 
 The mirror of the dictation bridge. SpeechPlugin wraps Android's
@@ -936,10 +936,10 @@ index 0000000..ef7baa0
 2.43.0
 
 
-From e071526272f02279631c9d4a40d1b758525cdc1f Mon Sep 17 00:00:00 2001
+From 782ef68947013a32bd6f0b98a834ebca76506ef9 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 15 Oct 2026 07:23:42 +0800
-Subject: [PATCH 3/4] Android: keep the page above the keyboard
+Subject: [PATCH 3/5] Android: keep the page above the keyboard
 
 Capacitor's edge-to-edge margins keep the page between the system bars
 but not above the keyboard, so typing covered the message box. The
@@ -1034,10 +1034,10 @@ index 017b55b..df4e3f4 100644
 2.43.0
 
 
-From dd4e4810b5b2391d7ba611032cbdfe767d4e358c Mon Sep 17 00:00:00 2001
+From 9c8064aa381f301abb8f40e1e2fae173041de56a Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 15 Oct 2026 23:17:32 +0800
-Subject: [PATCH 4/4] Android: keep the phone's world running while the player
+Subject: [PATCH 4/5] Android: keep the phone's world running while the player
  is in another app
 
 Android freezes an app's processes a few seconds after it leaves the
@@ -1067,7 +1067,9 @@ Claude-Session: https://claude.ai/code/session_01T9z3dvqZUTyMKgtJy4yqUe
  .../opendungeonmaster/app/ShareTunnel.java    |   3 +-
  .../opendungeonmaster/app/WorldRuntime.java   |  11 ++
  .../opendungeonmaster/app/WorldService.java   | 171 ++++++++++++++----
- 4 files changed, 154 insertions(+), 48 deletions(-)
+ src/shared/host-fetch.ts                      |   7 +
+ tests/host-fetch.test.mjs                     |  10 +
+ 6 files changed, 171 insertions(+), 48 deletions(-)
 
 diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/LocalWorldPlugin.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/LocalWorldPlugin.java
 index 641d7e8..22ad5e4 100644
@@ -1417,9 +1419,6 @@ index 3d9b5bb..8fbba54 100644
          Context app = getApplicationContext();
          WORK.execute(() -> ShareTunnel.get(app).stop());
          super.onDestroy();
--- 
-2.43.0
-
 diff --git a/src/shared/host-fetch.ts b/src/shared/host-fetch.ts
 index 4637286..0a2a567 100644
 --- a/src/shared/host-fetch.ts
@@ -1459,3 +1458,372 @@ index 07a60dd..48ed614 100644
  test("a Request made by the page resolves to a host path", () => {
    const request = new globalThis.Request("https://localhost/api/campaigns/c1/messages", { method: "POST", body: "{}" });
    assert.equal(hostRelativePath(request.url, "https://localhost/index.html"), "/api/campaigns/c1/messages");
+-- 
+2.43.0
+
+
+From 417633133f4ebf388186285d9c88e1d11f292bfc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 16 Oct 2026 19:58:35 +0800
+Subject: [PATCH 5/5] Android: close the game after five minutes away
+
+The world service keeps the phone's world running while the player is
+in another app, so a DM turn in progress finishes. Nothing ever ended
+that, so the world and its notification ran until the app was swiped
+away.
+
+AwayShutdown watches the app's screens. Once none has shown for five
+minutes, the world stops and the app closes, as swiping it away does;
+coming back sooner cancels it. A DM turn still running holds the close
+off (up to ten minutes more), asked of the server's /api/server/busy
+with a token made for each app process and handed to the server in
+ODM_DEVICE_TOKEN. A shared world (the tunnel or the Wi-Fi) stays up,
+and the count starts again when sharing ends. Time is real elapsed
+time, so a phone that slept through the five minutes closes the game
+on its first check after waking. The notification says so.
+---
+ .../opendungeonmaster/app/AwayShutdown.java   | 194 ++++++++++++++++++
+ .../opendungeonmaster/app/MainActivity.java   |   3 +
+ .../opendungeonmaster/app/WorldRuntime.java   |  57 +++++
+ .../opendungeonmaster/app/WorldService.java   |  10 +-
+ 4 files changed, 260 insertions(+), 4 deletions(-)
+ create mode 100644 mobile/android/app/src/main/java/com/opendungeonmaster/app/AwayShutdown.java
+
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/AwayShutdown.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/AwayShutdown.java
+new file mode 100644
+index 0000000..20fd920
+--- /dev/null
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/AwayShutdown.java
+@@ -0,0 +1,194 @@
++package com.opendungeonmaster.app;
++
++import android.app.Activity;
++import android.app.Application;
++import android.content.Context;
++import android.os.Bundle;
++import android.os.Handler;
++import android.os.Looper;
++import android.os.SystemClock;
++import android.util.Log;
++import java.lang.ref.WeakReference;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++
++/**
++ * Closes the game once the player has been away from it for a while.
++ *
++ * {@link WorldService} keeps the phone's world running while the player is
++ * in another app, so a DM turn in progress finishes. Without an end to that,
++ * the world (and its notification) ran until the app was swiped away. Now,
++ * once no screen of the app has been showing for {@link #AWAY_MS}, the world
++ * stops and the app closes, exactly as swiping it away does; opening it
++ * again starts fresh. Coming back sooner cancels the countdown.
++ *
++ * Two things hold the close off:
++ * <ul>
++ *   <li>A DM turn still running (the server's /api/server/busy). The close
++ *       waits for it, up to {@link #TURN_WAIT_MS} more, so the answer is
++ *       saved rather than cut off; a turn stuck past that is let go.</li>
++ *   <li>The world being shared (the public tunnel or the Wi-Fi). Friends
++ *       may be playing on it, so it stays up, and the countdown starts
++ *       again from the moment the sharing ends.</li>
++ * </ul>
++ *
++ * The countdown is measured in real elapsed time (elapsedRealtime), not in
++ * the main thread's uptime, which stops while the phone sleeps: a phone
++ * left asleep for an hour closes the game on its first check after waking.
++ * The checks themselves never wake the phone.
++ */
++final class AwayShutdown implements Application.ActivityLifecycleCallbacks {
++
++    private static final String TAG = "ODMAwayShutdown";
++    /** How long the player can be away before the game closes. */
++    static final long AWAY_MS = 5 * 60_000L;
++    /** The longest a still-running DM turn holds the close off, past AWAY_MS. */
++    static final long TURN_WAIT_MS = 10 * 60_000L;
++    /** How often the countdown is looked at while the player is away. */
++    private static final long TICK_MS = 30_000L;
++
++    private static AwayShutdown installed;
++
++    /** Hooks the countdown to the app's screens. Once per process; later calls do nothing. */
++    static synchronized void install(Application application) {
++        if (installed != null) return;
++        installed = new AwayShutdown(application);
++        application.registerActivityLifecycleCallbacks(installed);
++    }
++
++    private final Context app;
++    private final Handler main = new Handler(Looper.getMainLooper());
++    /** The network question and the stop wait on the server: off the main thread. */
++    private final ExecutorService work = Executors.newSingleThreadExecutor(runnable -> {
++        Thread thread = new Thread(runnable, "odm-away-shutdown");
++        thread.setDaemon(true);
++        return thread;
++    });
++
++    // Main-thread state only.
++    private int started;
++    private WeakReference<Activity> last = new WeakReference<>(null);
++    private boolean away;
++    /** Bumped on every arm and cancel, so a busy answer from before is ignored. */
++    private int generation;
++    /** When the away time runs out (elapsedRealtime). */
++    private long deadline;
++    /** Whether a busy question is out. */
++    private boolean asking;
++
++    private AwayShutdown(Application application) {
++        this.app = application.getApplicationContext();
++    }
++
++    private final Runnable tick = this::check;
++
++    @Override
++    public void onActivityStarted(Activity activity) {
++        started++;
++        last = new WeakReference<>(activity);
++        if (away) cancel();
++    }
++
++    @Override
++    public void onActivityStopped(Activity activity) {
++        started = Math.max(0, started - 1);
++        // A rotation stops the old screen before the new one starts: that
++        // arms here and cancels a moment later, which costs nothing.
++        if (started == 0) arm();
++    }
++
++    private void arm() {
++        away = true;
++        generation++;
++        asking = false;
++        deadline = SystemClock.elapsedRealtime() + AWAY_MS;
++        main.removeCallbacks(tick);
++        main.postDelayed(tick, TICK_MS);
++    }
++
++    private void cancel() {
++        away = false;
++        generation++;
++        asking = false;
++        main.removeCallbacks(tick);
++    }
++
++    private void again() {
++        main.removeCallbacks(tick);
++        main.postDelayed(tick, TICK_MS);
++    }
++
++    private void check() {
++        if (!away || asking) return;
++        WorldRuntime runtime = WorldRuntime.get(app);
++        if (!runtime.running()) {
++            // Nothing is running to close. A world opened later starts from
++            // the app's screen, which cancels and re-arms this anyway.
++            return;
++        }
++        long now = SystemClock.elapsedRealtime();
++        if (ShareTunnel.get(app).running() || runtime.sharedOnLan()) {
++            // Friends may be on it: keep it up, and count the away time
++            // again from when the sharing ends.
++            deadline = now + AWAY_MS;
++            again();
++            return;
++        }
++        if (now < deadline) {
++            again();
++            return;
++        }
++        asking = true;
++        final int asked = generation;
++        work.execute(() -> {
++            int jobs = runtime.busyJobs();
++            main.post(() -> {
++                if (asked != generation || !away) return;
++                asking = false;
++                long later = SystemClock.elapsedRealtime();
++                if (jobs > 0 && later < deadline + TURN_WAIT_MS) {
++                    Log.i(TAG, "Away for five minutes, but the DM is mid-turn; waiting for it.");
++                    again();
++                    return;
++                }
++                shutDown(asked);
++            });
++        });
++    }
++
++    /** What swiping the app away does: the world stops, then the app closes. */
++    private void shutDown(int asked) {
++        Log.i(TAG, "Away for five minutes: closing the world and the app.");
++        away = false;
++        main.removeCallbacks(tick);
++        work.execute(() -> {
++            ShareTunnel.get(app).stop();
++            WorldService.stop(app);
++            WorldRuntime.get(app).stop();
++            main.post(() -> {
++                // Came back while the world was stopping: leave the screen
++                // where it is, and the app's own world screens wake it.
++                if (asked != generation || started > 0) return;
++                Activity activity = last.get();
++                if (activity != null && !activity.isFinishing()) {
++                    activity.finishAndRemoveTask();
++                }
++            });
++        });
++    }
++
++    @Override
++    public void onActivityCreated(Activity activity, Bundle savedInstanceState) {}
++
++    @Override
++    public void onActivityResumed(Activity activity) {}
++
++    @Override
++    public void onActivityPaused(Activity activity) {}
++
++    @Override
++    public void onActivitySaveInstanceState(Activity activity, Bundle outState) {}
++
++    @Override
++    public void onActivityDestroyed(Activity activity) {}
++}
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java
+index df4e3f4..d2e6717 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/MainActivity.java
+@@ -38,6 +38,9 @@ public class MainActivity extends BridgeActivity {
+         registerPlugin(DictationPlugin.class);
+         registerPlugin(SpeechPlugin.class);
+         registerPlugin(SecretStorePlugin.class);
++        // Five minutes away from the app closes the game, as swiping it
++        // away would; the world service otherwise keeps it running for good.
++        AwayShutdown.install(getApplication());
+         super.onCreate(savedInstanceState);
+         keepAboveKeyboard();
+     }
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldRuntime.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldRuntime.java
+index 9f9237a..574d1bd 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldRuntime.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldRuntime.java
+@@ -11,10 +11,12 @@ import java.net.HttpURLConnection;
+ import java.net.URL;
+ import java.nio.charset.StandardCharsets;
+ import java.security.MessageDigest;
++import java.security.SecureRandom;
+ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.HashMap;
+ import java.util.List;
++import java.util.Locale;
+ import java.util.Map;
+ import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicReference;
+@@ -92,6 +94,20 @@ public final class WorldRuntime {
+     private volatile boolean bundledLoaded;
+     private volatile JSONObject bundled;
+     private volatile Boolean availableCache;
++    /**
++     * Made fresh for each app process and handed to the server it starts
++     * (ODM_DEVICE_TOKEN), so only this app can ask that server whether a DM
++     * turn is still running (busyJobs, /api/server/busy).
++     */
++    private final String deviceToken = newDeviceToken();
++
++    private static String newDeviceToken() {
++        byte[] bytes = new byte[16];
++        new SecureRandom().nextBytes(bytes);
++        StringBuilder hex = new StringBuilder(32);
++        for (byte b : bytes) hex.append(String.format(Locale.ROOT, "%02x", b));
++        return hex.toString();
++    }
+ 
+     private WorldRuntime(Context app) {
+         this.app = app;
+@@ -372,6 +388,44 @@ public final class WorldRuntime {
+         return json;
+     }
+ 
++    /**
++     * How many DM turns the world's server has queued or running, or -1 when
++     * it cannot say (not running, not answering, or a server without the
++     * question). Blocks for up to four seconds: call it off the main thread.
++     */
++    public int busyJobs() {
++        if (!running()) return -1;
++        HttpURLConnection conn = null;
++        try {
++            conn = (HttpURLConnection) new URL(origin() + "/api/server/busy").openConnection();
++            conn.setConnectTimeout(2000);
++            conn.setReadTimeout(2000);
++            conn.setUseCaches(false);
++            conn.setRequestProperty("x-odm-device-token", deviceToken);
++            if (conn.getResponseCode() != 200) return -1;
++            byte[] body;
++            try (InputStream in = conn.getInputStream()) {
++                body = readSmall(in, 4096);
++            }
++            return new JSONObject(new String(body, StandardCharsets.UTF_8)).optInt("dmJobs", -1);
++        } catch (IOException | JSONException e) {
++            return -1;
++        } finally {
++            if (conn != null) conn.disconnect();
++        }
++    }
++
++    private static byte[] readSmall(InputStream in, int cap) throws IOException {
++        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
++        byte[] chunk = new byte[1024];
++        int read;
++        while ((read = in.read(chunk)) != -1) {
++            out.write(chunk, 0, read);
++            if (out.size() > cap) throw new IOException("Answer too long.");
++        }
++        return out.toByteArray();
++    }
++
+     private boolean healthy() {
+         try {
+             HttpURLConnection conn = (HttpURLConnection) new URL(origin() + "/api/health").openConnection();
+@@ -490,6 +544,9 @@ public final class WorldRuntime {
+         // hides what the shell manages (address, sign-ups, voice, Discord).
+         env.put("ODM_DEVICE_WORLD", "1");
+         env.put("ODM_SETUP_CODE", setupCodeFor(dbKey));
++        // The app's own key to /api/server/busy, which the away timer
++        // (AwayShutdown) asks before it closes the world.
++        env.put("ODM_DEVICE_TOKEN", deviceToken);
+         // The server refuses uploads once the disk would drop below 1 GB
+         // free, sized for a server's volume. Plenty of phones live under
+         // that, and this disk is the owner's own, so the floor here is only
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldService.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldService.java
+index 8fbba54..6915fcb 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldService.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/WorldService.java
+@@ -26,9 +26,11 @@ import java.util.concurrent.Executors;
+  * So the service runs whenever the world does. Playing alone it is quiet
+  * ("Your world is running"); while the world is shared (a tunnel is up) it
+  * says so and offers "Stop hosting", which ends the share and leaves the
+- * world running for the host. Swiping the app away stops everything, and
+- * the world going to sleep (the bridge's idle stop once the game closes)
+- * takes the notification with it. The service owns nothing itself: the
++ * world running for the host. Swiping the app away stops everything, as
++ * does five minutes away from the app while the world is not shared
++ * ({@link AwayShutdown}), and the world going to sleep (the bridge's idle
++ * stop once the game closes) takes the notification with it. The service
++ * owns nothing itself: the
+  * server child process lives in {@link WorldRuntime}, the tunnel in
+  * {@link ShareTunnel}.
+  *
+@@ -51,7 +53,7 @@ public class WorldService extends Service {
+     public static final String EXTRA_SHARED = "shared";
+     private static final String CHANNEL = "odm-world";
+     private static final int NOTIFICATION_ID = 4201;
+-    private static final String SOLO_TEXT = "Your game keeps going while you use other apps.";
++    private static final String SOLO_TEXT = "Your game keeps going while you use other apps, and closes after 5 minutes away.";
+ 
+     /** One lane for the blocking stops, shared across service instances. */
+     private static final ExecutorService WORK = Executors.newSingleThreadExecutor(runnable -> {
+-- 
+2.43.0
+

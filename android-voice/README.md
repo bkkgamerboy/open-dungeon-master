@@ -17,6 +17,11 @@ Open Dungeon Master app with these changes:
   so a DM turn in progress never finished. The world now runs under a quiet
   notification ("Your world is running") whenever it is up, as it already
   did while shared.
+- **The game closes itself after five minutes away.** Once you have been
+  out of the app for five minutes, the world stops and the app closes, as
+  swiping it away does; coming back sooner cancels it. A DM turn still
+  running is waited for (up to ten minutes more), and a world shared with
+  friends stays up until five minutes after the sharing ends.
 - **Exports save on the phone.** The character sheet PDF, character export
   and other files the game builds itself used to fail with "Failed to
   execute 'fetch' on 'Window'". They now open the phone's share sheet, to
@@ -24,7 +29,9 @@ Open Dungeon Master app with these changes:
 
 The game-screen half of this lives on this branch. `client.patch` is the
 app's half: the native voice plugin, the media fix, the keyboard fix, the
-world kept running in the background and the export fix. It's applied to the
+world kept running in the background, the export fix and the five-minute
+close, which asks this branch's `/api/server/busy` whether a DM turn is
+still running. It's applied to the
 official app (the `CLIENT_REF` commit) at build time.
 
 ## How a build happens
