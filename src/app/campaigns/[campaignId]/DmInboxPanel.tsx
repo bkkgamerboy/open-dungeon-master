@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { ui } from "@/lib/ui";
 import { DisclosureHead } from "@/app/campaigns/[campaignId]/DmConsoleParts";
 import type { InboxWhisper } from "@/lib/db/dm-whispers";
+import { enterSends } from "@/lib/enter-sends";
 
 // The DM seat's side of the players' private line, at a person's table.
 // The AI reads these from GAME STATE and answers with send_whisper; a person
@@ -123,7 +124,7 @@ export function DmInboxPanel({
                         autoFocus
                         onChange={(event) => setDraft(event.target.value)}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter" && !event.shiftKey) {
+                          if (enterSends(event)) {
                             event.preventDefault();
                             void reply(whisper.characterId as string);
                           }

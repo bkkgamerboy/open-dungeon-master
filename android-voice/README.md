@@ -22,6 +22,12 @@ Open Dungeon Master app with these changes:
   swiping it away does; coming back sooner cancels it. A DM turn still
   running is waited for (up to ten minutes more), and a world shared with
   friends stays up until five minutes after the sharing ends.
+- **Enter starts a new line; only the send button sends.** On the phone's
+  keyboard, Enter in the message box (and in Ask, whispers, side chats and
+  message edits) used to send a move half written. It now starts a new line,
+  as Shift+Enter does on a computer; tap the send button to send. A keyboard
+  plugged into the phone can send with Ctrl+Enter. On a computer, Enter still
+  sends, so friends playing from one notice no change.
 - **Exports save on the phone.** The character sheet PDF, character export
   and other files the game builds itself used to fail with "Failed to
   execute 'fetch' on 'Window'". They now open the phone's share sheet, to

@@ -7,6 +7,7 @@ import { ui } from "@/lib/ui";
 import { DisclosureHead } from "@/app/campaigns/[campaignId]/DmConsoleParts";
 import type { DmWhisper } from "@/lib/db/dm-whispers";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
+import { enterSends } from "@/lib/enter-sends";
 
 const PENDING_CAP = 2;
 
@@ -153,7 +154,7 @@ export function DmWhisperPanel({
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
+                  if (enterSends(event)) {
                     event.preventDefault();
                     void sendWhisper();
                   }

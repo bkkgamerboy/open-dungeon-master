@@ -23,6 +23,7 @@ import { ROLL_KIND_LABELS, rollChronicleLead, rollToastLead } from "@/lib/roll-l
 import { LengthNote } from "@/components/ui/LengthNote";
 import { atBottom, chronicleSignature, chronicleSystemLine, chronicleWindow } from "@/lib/chronicle-logic";
 import { textLength } from "@/lib/text-limits";
+import { enterSends } from "@/lib/enter-sends";
 
 // The cinematic table ("ODM World Concepts", round 3b): the scene's own
 // painting fills the screen, the chrome shrinks to its edges, and the fight
@@ -621,7 +622,7 @@ export function TabletopChronicle({
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
+                  if (enterSends(event)) {
                     event.preventDefault();
                     onSubmit(event);
                   }

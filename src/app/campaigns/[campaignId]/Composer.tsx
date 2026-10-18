@@ -32,6 +32,7 @@ import type { CampaignState } from "@/app/campaigns/[campaignId]/useCampaignStre
 import type { InputKind } from "@/lib/campaign-types";
 import { LengthNote } from "@/components/ui/LengthNote";
 import { composerLimit, textLength } from "@/lib/text-limits";
+import { enterSends } from "@/lib/enter-sends";
 
 export type { InputKind };
 
@@ -323,7 +324,7 @@ function ComposerInner({
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (enterSends(event)) {
                 event.preventDefault();
                 onSubmit(event);
               }

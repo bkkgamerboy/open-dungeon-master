@@ -12,6 +12,7 @@ import { SectionHead } from "@/components/ui/SectionHead";
 import { KitButton, PanelError, Tick } from "./PanelKit";
 import type { CampaignMember } from "@/lib/campaign-types";
 import type { SideMessage, SideThread } from "@/lib/db/side-chat";
+import { enterSends } from "@/lib/enter-sends";
 
 // Private table talk: 1:1 whispers and group side chats. Content lives only
 // in the side-chat API; the shared campaign stream carries just a contentless
@@ -427,7 +428,7 @@ function ThreadView({
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (enterSends(event)) {
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
               }

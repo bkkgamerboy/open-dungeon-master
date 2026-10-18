@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { ui } from "@/lib/ui";
 import { DictateField } from "@/components/DictateField";
 import { appendDictation } from "@/lib/dictation";
+import { enterSends } from "@/lib/enter-sends";
 
 // Inline narration editor, ported from NE-P's InlineMessageEditor
 // (src/components/message/InlineMessageEditor.tsx, MIT, Copyright (c) 2026
@@ -87,7 +88,7 @@ export function InlineMessageEditor({
             grow(event.currentTarget);
           }}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (enterSends(event)) {
               event.preventDefault();
               void save();
             } else if (event.key === "Escape") {

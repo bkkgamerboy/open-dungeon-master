@@ -14,6 +14,7 @@ import { LengthNote } from "@/components/ui/LengthNote";
 import type { CampaignAsk } from "@/lib/db/asks";
 import { QUESTION_MAX_CHARS, questionLength, type AskScope, type AskVisibility } from "@/lib/dm/ask-logic";
 import { ui } from "@/lib/ui";
+import { enterSends } from "@/lib/enter-sends";
 
 // The Ask thread: out-of-character questions to the DM and their grounded
 // answers. Framed hard as an aside, because the one thing a player must
@@ -276,7 +277,7 @@ function AskDockInner({
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (enterSends(event)) {
                   event.preventDefault();
                   submit(event);
                 }
