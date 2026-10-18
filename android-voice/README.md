@@ -18,8 +18,10 @@ Open Dungeon Master app with these changes:
   notification ("Your world is running") whenever it is up, as it already
   did while shared.
 - **The game closes itself after five minutes away.** Once you have been
-  out of the app for five minutes, the world stops and the app closes, as
-  swiping it away does; coming back sooner cancels it. A DM turn still
+  out of the app for five minutes, the world stops, the app closes and
+  leaves Recent apps, and its process ends, as swiping it away does
+  (it used to leave the process behind, cached, so the app still read as
+  running); coming back sooner cancels it. A DM turn still
   running is waited for (up to ten minutes more), and a world shared with
   friends stays up until five minutes after the sharing ends.
 - **Enter starts a new line; only the send button sends.** On the phone's

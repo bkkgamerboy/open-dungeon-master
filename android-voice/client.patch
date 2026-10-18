@@ -1,7 +1,7 @@
-From 91acb5279d4b11879435121dbf6ed0ead4ac5fca Mon Sep 17 00:00:00 2001
+From f333c366bb41e7466ad0f4df0744fd2367a53788 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 14 Oct 2026 20:07:18 +0800
-Subject: [PATCH 1/5] Protected media: drop the old source while the new one is
+Subject: [PATCH 1/6] Protected media: drop the old source while the new one is
  fetched
 
 A sound given a protected address (narration under /generated-audio/,
@@ -61,10 +61,10 @@ index 47b8d0a..e809928 100644
 2.43.0
 
 
-From ac442cfb50a10eec971f067bd9123bcdab116762 Mon Sep 17 00:00:00 2001
+From 4167cfb012970b5bd3204d4c4100616ffee08748 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 14 Oct 2026 20:07:18 +0800
-Subject: [PATCH 2/5] Android: offer the phone's text-to-speech to the table as
+Subject: [PATCH 2/6] Android: offer the phone's text-to-speech to the table as
  window.odmSpeech
 
 The mirror of the dictation bridge. SpeechPlugin wraps Android's
@@ -936,10 +936,10 @@ index 0000000..ef7baa0
 2.43.0
 
 
-From 782ef68947013a32bd6f0b98a834ebca76506ef9 Mon Sep 17 00:00:00 2001
+From ead85f27bb98630d7d78a63651b5bd6de53c55b5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 15 Oct 2026 07:23:42 +0800
-Subject: [PATCH 3/5] Android: keep the page above the keyboard
+Subject: [PATCH 3/6] Android: keep the page above the keyboard
 
 Capacitor's edge-to-edge margins keep the page between the system bars
 but not above the keyboard, so typing covered the message box. The
@@ -1034,10 +1034,10 @@ index 017b55b..df4e3f4 100644
 2.43.0
 
 
-From 9c8064aa381f301abb8f40e1e2fae173041de56a Mon Sep 17 00:00:00 2001
+From 00c9ceedae6169fffeec1258f3acd151d908f6c1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 15 Oct 2026 23:17:32 +0800
-Subject: [PATCH 4/5] Android: keep the phone's world running while the player
+Subject: [PATCH 4/6] Android: keep the phone's world running while the player
  is in another app
 
 Android freezes an app's processes a few seconds after it leaves the
@@ -1462,10 +1462,10 @@ index 07a60dd..48ed614 100644
 2.43.0
 
 
-From 417633133f4ebf388186285d9c88e1d11f292bfc Mon Sep 17 00:00:00 2001
+From 84fef322da452db26f47f36ee50c17be21507886 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 16 Oct 2026 19:58:35 +0800
-Subject: [PATCH 5/5] Android: close the game after five minutes away
+Subject: [PATCH 5/6] Android: close the game after five minutes away
 
 The world service keeps the phone's world running while the player is
 in another app, so a DM turn in progress finishes. Nothing ever ended
@@ -1824,6 +1824,109 @@ index 8fbba54..6915fcb 100644
  
      /** One lane for the blocking stops, shared across service instances. */
      private static final ExecutorService WORK = Executors.newSingleThreadExecutor(runnable -> {
+-- 
+2.43.0
+
+
+From bbc885ce9749436f043fd2ca680a4b5b4e978bb7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 18 Oct 2026 23:56:44 +0800
+Subject: [PATCH 6/6] Android: the five-minute close ends the app's process too
+
+The close after five minutes away stopped the world and closed the
+screen, but left the app's process behind, cached by Android: the app
+still read as running (Settings offered Force stop) and came back where
+it was rather than starting fresh. Swiping the app away ends the
+process, and the close promised to do what swiping does, so it now ends
+it as well, two seconds after the screen has closed, with the web view's
+cookies written first. Opening the app again in those two seconds, or
+leaving it again, keeps the process.
+---
+ .../opendungeonmaster/app/AwayShutdown.java   | 42 +++++++++++++++++--
+ 1 file changed, 38 insertions(+), 4 deletions(-)
+
+diff --git a/mobile/android/app/src/main/java/com/opendungeonmaster/app/AwayShutdown.java b/mobile/android/app/src/main/java/com/opendungeonmaster/app/AwayShutdown.java
+index 20fd920..46a9999 100644
+--- a/mobile/android/app/src/main/java/com/opendungeonmaster/app/AwayShutdown.java
++++ b/mobile/android/app/src/main/java/com/opendungeonmaster/app/AwayShutdown.java
+@@ -8,6 +8,7 @@ import android.os.Handler;
+ import android.os.Looper;
+ import android.os.SystemClock;
+ import android.util.Log;
++import android.webkit.CookieManager;
+ import java.lang.ref.WeakReference;
+ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
+@@ -19,8 +20,9 @@ import java.util.concurrent.Executors;
+  * in another app, so a DM turn in progress finishes. Without an end to that,
+  * the world (and its notification) ran until the app was swiped away. Now,
+  * once no screen of the app has been showing for {@link #AWAY_MS}, the world
+- * stops and the app closes, exactly as swiping it away does; opening it
+- * again starts fresh. Coming back sooner cancels the countdown.
++ * stops, the app closes and its process ends, exactly as swiping it away
++ * does; opening it again starts fresh. Coming back sooner cancels the
++ * countdown.
+  *
+  * Two things hold the close off:
+  * <ul>
+@@ -156,7 +158,15 @@ final class AwayShutdown implements Application.ActivityLifecycleCallbacks {
+         });
+     }
+ 
+-    /** What swiping the app away does: the world stops, then the app closes. */
++    /**
++     * What swiping the app away does: the world stops, the screen closes and
++     * leaves Recents, then the app's process ends.
++     *
++     * Closing the screen alone left the process behind, cached by Android:
++     * the app still read as running (Settings offered Force stop) and came
++     * back from where it was instead of starting fresh. Swiping it away ends
++     * the process, so this does too, a moment after the screen has closed.
++     */
+     private void shutDown(int asked) {
+         Log.i(TAG, "Away for five minutes: closing the world and the app.");
+         away = false;
+@@ -168,15 +178,39 @@ final class AwayShutdown implements Application.ActivityLifecycleCallbacks {
+             main.post(() -> {
+                 // Came back while the world was stopping: leave the screen
+                 // where it is, and the app's own world screens wake it.
+-                if (asked != generation || started > 0) return;
++                if (stillHere(asked)) return;
+                 Activity activity = last.get();
+                 if (activity != null && !activity.isFinishing()) {
+                     activity.finishAndRemoveTask();
+                 }
++                main.postDelayed(() -> endProcess(asked), EXIT_DELAY_MS);
+             });
+         });
+     }
+ 
++    /** How long after the screen closes the process ends, so the close finishes first. */
++    static final long EXIT_DELAY_MS = 2_000L;
++
++    /** Whether the player came back (or left again) since the close began. */
++    private boolean stillHere(int asked) {
++        return asked != generation || started > 0;
++    }
++
++    private void endProcess(int asked) {
++        // Opened again in the meantime: the new screen lives in this
++        // process, so it stays.
++        if (stillHere(asked)) return;
++        Log.i(TAG, "Closed: ending the app's process, as swiping it away does.");
++        try {
++            // The web view keeps its cookies (the world's sign-in) in memory
++            // for a while before writing them; write them now.
++            CookieManager.getInstance().flush();
++        } catch (RuntimeException ignored) {
++            // No web view on this phone: nothing to write.
++        }
++        android.os.Process.killProcess(android.os.Process.myPid());
++    }
++
+     @Override
+     public void onActivityCreated(Activity activity, Bundle savedInstanceState) {}
+ 
 -- 
 2.43.0
 
