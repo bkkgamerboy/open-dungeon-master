@@ -35,7 +35,7 @@ import { heldRollUserIds } from "@/lib/dice/held-rolls";
 import { publishEphemeral, publishPersisted, publishWithSeq } from "@/lib/events";
 import { generateImageTool, parseGenerateImageToolCall } from "@/lib/image-tool";
 import { createStreamingArtifactFilter, extractReplyText, extractStoryText } from "@/lib/story-prompt";
-import { salvageJsonToolCalls } from "@/lib/dm/json-salvage";
+import { salvageHeaderToolCalls, salvageJsonToolCalls } from "@/lib/dm/json-salvage";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
 import { fulfillAutoImage } from "@/lib/dm/images";
 import { imagesAvailable } from "@/lib/capabilities";
@@ -1034,13 +1034,16 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
 
     // Salvage tool calls the model wrote as literal text so they still run
     // (and never reach players as raw text), then merge them with the
-    // structured calls under synthetic ids for tool-result pairing. Four
-    // nets, in order: the model's native XML dialect (llama-server's
+    // structured calls under synthetic ids for tool-result pairing. Five
+    // nets, in order: a call's recipient header written as text (an
+    // OpenAI-format model addressing the tool in its reply), the model's
+    // native XML dialect (llama-server's
     // extraction intermittently misses it), bare JSON arguments (read before
     // extractStoryText, which takes a reply that is one JSON object for the
     // structured story format and would swallow it), bracket leaks, prose
     // roll-asks.
-    const xmlSalvage = salvageXmlToolCalls(extractReplyText(message?.content));
+    const headerSalvage = salvageHeaderToolCalls(extractReplyText(message?.content), tools);
+    const xmlSalvage = salvageXmlToolCalls(headerSalvage.text);
     const jsonSalvage = salvageJsonToolCalls(xmlSalvage.text, tools);
     const salvage = salvageTextualToolCalls(extractStoryText(jsonSalvage.text));
     // The reply's prose, read once by the claims reader (src/lib/dm/claims.ts)
@@ -1055,6 +1058,7 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
     // every roll for a sentence the follow-up narrates past.
     const structuredCalls = [
       ...extractToolCalls(message?.tool_calls),
+      ...headerSalvage.calls,
       ...xmlSalvage.calls,
       ...jsonSalvage.calls,
       ...salvage.calls,
@@ -1073,7 +1077,7 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
       : null;
     const claims = read?.claims ?? [];
     const proseRolls = rollAsksFromClaims(salvage.text, claims, sheets);
-    const salvagedCalls = [...xmlSalvage.calls, ...jsonSalvage.calls, ...salvage.calls, ...proseRolls.calls];
+    const salvagedCalls = [...headerSalvage.calls, ...xmlSalvage.calls, ...jsonSalvage.calls, ...salvage.calls, ...proseRolls.calls];
     const visibleText = proseRolls.text;
     const echoedToolCalls = salvagedCalls.length
       ? [
@@ -1862,11 +1866,13 @@ async function ensureWhisperReplies(context: TurnContext, turn: DmTurn) {
     ],
     { tools: [sendWhisperTool], stableTools: turnStableTools(campaign), toolChoice: "auto", thinking: true },
   );
-  const xmlSalvage = salvageXmlToolCalls(extractReplyText(message?.content));
+  const headerSalvage = salvageHeaderToolCalls(extractReplyText(message?.content), [sendWhisperTool]);
+  const xmlSalvage = salvageXmlToolCalls(headerSalvage.text);
   const jsonSalvage = salvageJsonToolCalls(xmlSalvage.text, [sendWhisperTool]);
   const salvage = salvageTextualToolCalls(extractStoryText(jsonSalvage.text));
   const whisperCalls = [
     ...extractToolCalls(message?.tool_calls),
+    ...headerSalvage.calls,
     ...xmlSalvage.calls,
     ...jsonSalvage.calls,
     ...salvage.calls,

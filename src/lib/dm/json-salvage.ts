@@ -1,5 +1,5 @@
 import type { ParsedToolCall } from "@/lib/dm/rolls";
-import { cutSpans, findBareJsonObjects } from "@/lib/dm/tool-text";
+import { cutSpans, findBareJsonObjects, findHeaderLeaks } from "@/lib/dm/tool-text";
 
 // gpt-oss on vLLM sometimes writes a call into its reply as bare JSON instead
 // of a structured tool call: just the arguments ('{"characterIds":[...],
@@ -86,4 +86,39 @@ export function salvageJsonToolCalls(
     }
   }
   return { text: cutSpans(text, objects), calls };
+}
+
+// The recipient-header leak (src/lib/dm/tool-text.ts findHeaderLeaks): an
+// OpenAI-format model addressing a tool in its reply text ("assistant
+// to=functions.request_player_input json {...}") instead of making the call.
+// The header and everything after it is cut from the narration; the call
+// runs when its arguments survived as an object and the tool is offered.
+// Arguments lost to a broken decode leave nothing to run, and the turn goes
+// on with the prose before the header, which is what players were meant to
+// read.
+export function salvageHeaderToolCalls(
+  text: string,
+  tools: unknown[],
+): { text: string; calls: ParsedToolCall[] } {
+  const leaks = findHeaderLeaks(text);
+  if (!leaks.length) {
+    return { text, calls: [] };
+  }
+  const shapes = toolShapes(tools);
+  const calls: ParsedToolCall[] = [];
+  for (const leak of leaks) {
+    const shape = shapes.get(leak.name);
+    if (!shape || !leak.args) {
+      continue;
+    }
+    // A whole call ({"name":..., "arguments":...}) or its bare arguments.
+    const args =
+      typeof leak.args.name === "string" && leak.args.name === leak.name && leak.args.arguments
+        ? asArguments(leak.args.arguments)
+        : leak.args;
+    if (args && shape.required.every((key) => key in args)) {
+      calls.push({ id: `header-salvaged-${calls.length}`, name: leak.name, rawArguments: JSON.stringify(args) });
+    }
+  }
+  return { text: cutSpans(text, leaks), calls };
 }

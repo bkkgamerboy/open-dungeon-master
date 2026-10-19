@@ -119,11 +119,70 @@ export function cutSpans(text: string, spans: Array<{ start: number; end: number
 }
 
 export function stripToolText(text: string): string {
-  const cleaned = text
+  const headers = findHeaderLeaks(text);
+  const unheaded = headers.length ? cutSpans(text, headers) : text;
+  const cleaned = unheaded
     .replace(toolTextRegex(), "")
     .replace(xmlToolCallRegex(), "")
     .replace(fakeRollMarkerRegex(), "")
     .replace(/[ \t]{2,}/g, " ");
   const objects = findBareJsonObjects(cleaned);
   return objects.length ? cutSpans(cleaned, objects) : cleaned;
+}
+
+// A fourth shape: the call's recipient header, the way OpenAI-format models
+// address a tool internally ("assistant to=functions.request_player_input
+// json {...}"), written into the reply as text when the serving side fails to
+// turn it into a structured call. The special tokens around it are usually
+// gone or decoded as junk (a stray "ระ" glued to "assistant", glitch strings
+// after the name), so the header itself is the one reliable sign. Nothing
+// after it in that reply is narration: the span runs from the header (with
+// the role word and any channel word just before it) to the end of the
+// arguments object when one follows and parses, or to the end of the text.
+export type HeaderLeak = { start: number; end: number; name: string; args: Record<string, unknown> | null };
+
+const HEADER = /\bto\s*=\s*(?:functions|multi_tool_use)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)/g;
+// The role and channel words that stand before a header, with the junk a
+// broken decode glues to them, up to a few characters back.
+const HEADER_LEAD =
+  /(?:(?:<\|?[a-z_]+\|?>)*\S{0,4}?(?:assistant|commentary|analysis)(?:<\|?[a-z_]+\|?>)*[^\S\n]*){1,3}\s*$/i;
+
+export function findHeaderLeaks(text: string): HeaderLeak[] {
+  if (!text || !/to\s*=\s*(?:functions|multi_tool_use)/i.test(text)) {
+    return [];
+  }
+  const found: HeaderLeak[] = [];
+  const pattern = new RegExp(HEADER.source, "gi");
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    const lead = HEADER_LEAD.exec(text.slice(Math.max(0, match.index - 48), match.index));
+    const start = lead ? match.index - lead[0].length : match.index;
+    const afterName = match.index + match[0].length;
+    // The arguments, when they survived: the first object a short way on.
+    const brace = text.indexOf("{", afterName);
+    let end = text.length;
+    let args: Record<string, unknown> | null = null;
+    if (brace >= 0 && brace - afterName <= 80) {
+      const close = balancedObjectEnd(text, brace);
+      if (close > 0) {
+        try {
+          const value = JSON.parse(text.slice(brace, close)) as unknown;
+          if (value && typeof value === "object" && !Array.isArray(value)) {
+            args = value as Record<string, unknown>;
+            // Whatever junk closes the call on its line goes with it.
+            const lineEnd = text.indexOf("\n", close);
+            const tail = text.slice(close, lineEnd < 0 ? text.length : lineEnd);
+            end = /[A-Za-z]{3,}\s+[A-Za-z]{3,}/.test(tail) ? close : lineEnd < 0 ? text.length : lineEnd;
+          }
+        } catch {
+          // Not the arguments after all: the rest of the reply goes.
+        }
+      }
+    }
+    found.push({ start: Math.max(start, found.at(-1)?.end ?? 0), end, name: match[1], args });
+    if (end >= text.length) {
+      break;
+    }
+    pattern.lastIndex = end;
+  }
+  return found;
 }

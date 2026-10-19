@@ -1,3 +1,4 @@
+import { findHeaderLeaks } from "@/lib/dm/tool-text";
 import type { AspectPreset, ImageMode, StoryMessage } from "@/lib/types";
 
 export type StoryModelResult = {
@@ -182,16 +183,53 @@ function partialMarkerStart(text: string): number {
   return -1;
 }
 
+// Where a trailing word that could be the start of a header leak's role
+// word begins ("ระassist", "assistant", "comment"), junk glued in front of
+// it included, or -1. Held back one chunk: the next says whether a header
+// follows. A real word ("as", "assistant") is only delayed, never lost.
+function roleWordTail(text: string): number {
+  const run = /(\S{1,16})\s*$/.exec(text);
+  if (!run) {
+    return -1;
+  }
+  const lower = run[1].toLowerCase();
+  for (let skip = 0; skip <= 4 && skip < lower.length - 1; skip += 1) {
+    const word = lower.slice(skip);
+    if (word.length >= 2 && ["assistant", "commentary"].some((role) => role.startsWith(word))) {
+      return run.index;
+    }
+  }
+  return -1;
+}
+
+function stripToolHeaders(text: string): string {
+  const header = findHeaderLeaks(text)[0];
+  return header ? text.slice(0, header.start) : text;
+}
+
 export function createStreamingArtifactFilter() {
   let pending = "";
   let suppressing = false;
   let emittedAnything = false;
   let jsonReply = false;
+  // A tool call's recipient header written as text ("assistant
+  // to=functions.x ..."): nothing after it is story, so the stream stops
+  // there and the turn's salvage deals with the call (src/lib/dm/
+  // json-salvage.ts salvageHeaderToolCalls).
+  let headed = false;
 
   return {
     push(chunk: string): string {
+      if (headed) {
+        return "";
+      }
       pending += chunk;
       let output = "";
+      const header = findHeaderLeaks(pending)[0];
+      if (header && !suppressing) {
+        pending = pending.slice(0, header.start);
+        headed = true;
+      }
 
       for (;;) {
         if (suppressing) {
@@ -274,7 +312,10 @@ export function createStreamingArtifactFilter() {
           continue;
         }
 
-        const holdback = partialMarkerStart(pending);
+        // The role word a header leak opens with may arrive a chunk before
+        // the header itself; hold it until the next chunk says which.
+        const roleTail = headed ? -1 : roleWordTail(pending);
+        const holdback = roleTail >= 0 ? roleTail : partialMarkerStart(pending);
         if (holdback >= 0) {
           output += pending.slice(0, holdback);
           pending = pending.slice(holdback);
@@ -292,7 +333,7 @@ export function createStreamingArtifactFilter() {
     },
 
     flush(): string {
-      const rest = suppressing || jsonReply ? "" : pending.replace(new RegExp(STREAM_STRIP.source, "gi"), "");
+      const rest = suppressing || jsonReply ? "" : stripToolHeaders(pending).replace(new RegExp(STREAM_STRIP.source, "gi"), "");
       pending = "";
       suppressing = false;
       if (rest) {
