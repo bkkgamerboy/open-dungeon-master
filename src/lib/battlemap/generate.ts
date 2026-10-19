@@ -1,3 +1,4 @@
+import { standInRanks } from "@/lib/battlemap/party-ranks";
 import {
   TERRAIN,
   blocksMove,
@@ -273,11 +274,18 @@ function pickSpawnsAtDistance(
     const j = Math.floor(rng() * (i + 1));
     [open[i], open[j]] = [open[j], open[i]];
   }
-  // Ahead of the party first, then nearest, then square in front of it
-  // rather than off a flank; tiles behind it only if the ground ahead runs
-  // out. A whole-tile lateral bucket keeps the seed's shuffle deciding ties.
+  // Ahead of the party first, then in front of its face rather than off a
+  // flank (no farther to the side than ahead, and at most 15 ft past the
+  // distance asked: a wall straight ahead should not swing the whole enemy
+  // round to the party's side), then nearest, then squarest; tiles behind
+  // it only if the ground ahead runs out. A whole-tile lateral bucket keeps
+  // the seed's shuffle deciding ties.
   const lateral = (y: number) => Math.round(Math.abs(y - middle));
-  open.sort((a, b) => behind(a.x) - behind(b.x) || a.away - b.away || lateral(a.y) - lateral(b.y));
+  const facing = (spot: XY & { away: number }) =>
+    Math.max(0, Math.abs(spot.y - middle) - 0.5) <= (spot.x - front) * toward && spot.away <= distance + 3 ? 0 : 1;
+  open.sort(
+    (a, b) => behind(a.x) - behind(b.x) || facing(a) - facing(b) || a.away - b.away || lateral(a.y) - lateral(b.y),
+  );
   const picked = open.slice(0, count).map(({ x, y }) => ({ x, y }));
   for (const spot of picked) {
     taken.add(tileIndex(width, spot.x, spot.y));
@@ -357,9 +365,9 @@ function pickSpawns(
 // so the travel formation has a real front and rear to put people in
 // (formation-logic.ts placeByFormation). Spread at random across the edge
 // band, as before, a "front" tile could be 60 ft from the casters it was
-// meant to screen. Where walls break the ranks, the nearest open floor to
-// the anchor fills in. Uses no randomness, so a seed's terrain and lights
-// are unchanged.
+// meant to screen. Where a wall, rough ground or the map's edge would break
+// the ranks, the block slides a few tiles to stand whole (party-ranks.ts).
+// Uses no randomness, so a seed's terrain and lights are unchanged.
 function clusterParty(
   tiles: string[],
   width: number,
@@ -375,41 +383,19 @@ function clusterParty(
     taken.delete(tileIndex(width, spot.x, spot.y));
   }
   const anchor = picked[0];
-  const side = anchor.y < height / 2 ? 1 : -1;
-  const inside = (x: number, y: number) => x > 0 && y > 0 && x < width - 1 && y < height - 1;
-  const reach = reachableFrom(tiles, width, height, anchor);
-  const cluster: XY[] = [];
-  const take = (x: number, y: number) => {
-    const idx = tileIndex(width, x, y);
-    if (inside(x, y) && tiles[idx] === TERRAIN.floor && !taken.has(idx) && reach.has(idx)) {
-      cluster.push({ x, y });
-      taken.add(idx);
-    }
-  };
-  // Ranks of two, front first.
-  for (let rank = 0; cluster.length < picked.length && rank < picked.length; rank += 1) {
-    for (const file of [0, side]) {
-      if (cluster.length < picked.length) {
-        take(anchor.x - rank * toward, anchor.y + file);
-      }
-    }
-  }
-  // Walls in the way: the nearest open floor to the anchor, by ring.
-  for (let ring = 1; cluster.length < picked.length && ring < Math.max(width, height); ring += 1) {
-    for (let dy = -ring; dy <= ring && cluster.length < picked.length; dy += 1) {
-      for (let dx = -ring; dx <= ring && cluster.length < picked.length; dx += 1) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) === ring) {
-          take(anchor.x + dx, anchor.y + dy);
-        }
-      }
-    }
-  }
-  // Boxed in completely: keep the original picks for whoever is left.
-  for (const spot of picked) {
-    if (cluster.length < picked.length && !taken.has(tileIndex(width, spot.x, spot.y))) {
-      cluster.push(spot);
-      taken.add(tileIndex(width, spot.x, spot.y));
-    }
+  const cluster = standInRanks({
+    terrain: tiles,
+    width,
+    height,
+    anchor,
+    facing: { dx: toward, dy: 0 },
+    side: anchor.y < height / 2 ? 1 : -1,
+    count: picked.length,
+    taken,
+    margin: 1,
+  });
+  for (const spot of cluster) {
+    taken.add(tileIndex(width, spot.x, spot.y));
   }
   return cluster;
 }

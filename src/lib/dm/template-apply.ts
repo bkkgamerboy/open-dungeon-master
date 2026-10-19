@@ -5,6 +5,7 @@ import type { EncounterTemplate } from "@/lib/db/encounter-templates";
 import { allocateSeq } from "@/lib/db/campaigns";
 import { getActiveEncounter, listEnemies, patchEnemyIdentity } from "@/lib/db/encounters";
 import {
+  type BattleMap,
   getBattleMapForEncounter,
   getTokenByRef,
   listTokens,
@@ -18,7 +19,10 @@ import { occupiedTiles } from "@/lib/battlemap/view";
 import { publishBattleMapUpdate } from "@/lib/dm/map-tools";
 import { publishEncounter } from "@/lib/dm/enemy-damage";
 import type { MapTheme } from "@/lib/battlemap/generate";
-import { tileIndex, type AmbientLight } from "@/lib/battlemap/types";
+import { tileIndex, type AmbientLight, type XY } from "@/lib/battlemap/types";
+import { centerOf, chooseFront, facingToward, standInRanks } from "@/lib/battlemap/party-ranks";
+import { placeByFormation } from "@/lib/dm/formation-logic";
+import { getParty } from "@/lib/db/party";
 import { describeExtras, expandRoster, matchSlots } from "@/lib/dm/encounter-template-logic";
 
 // What a prepared fight brings to the board once the fight exists: its
@@ -61,13 +65,80 @@ export function applyTemplateMap(campaign: Campaign, template: EncounterTemplate
   return "error" in applied ? applied.error : null;
 }
 
+// Stands the party on the board as a fight opens, after the enemy is in
+// place: front rank toward the enemy, ranks of two behind it, the travel
+// formation deciding who stands where (party-ranks.ts, formation-logic.ts).
+function standPartyFacingEnemy(campaign: Campaign, map: BattleMap, entry: XY | null, distanceFeet?: number) {
+  const tokens = listTokens(map.id);
+  const party = tokens.filter((token) => token.kind === "pc");
+  if (!party.length) {
+    return;
+  }
+  const enemy = tokens.filter((token) => token.kind === "enemy");
+  const foes = enemy.map((token) => ({ x: token.x, y: token.y }));
+  const seen = enemy.filter((token) => !token.hidden).map((token) => ({ x: token.x, y: token.y }));
+  const taken = occupiedTiles(
+    map,
+    tokens.filter((token) => token.kind !== "pc"),
+    null,
+  );
+  const middle = centerOf(seen.length ? seen : foes);
+  // The party member nearest the enemy marks where the party is now.
+  const near = middle
+    ? party.reduce((best, token) =>
+        Math.hypot(token.x - middle.x, token.y - middle.y) < Math.hypot(best.x - middle.x, best.y - middle.y) ? token : best,
+      )
+    : party[0];
+  const front = chooseFront({
+    terrain: map.terrain,
+    width: map.width,
+    height: map.height,
+    enemies: foes,
+    near: { x: near.x, y: near.y },
+    entry,
+    distance: distanceFeet ? distanceFeet / 5 : undefined,
+    taken,
+  });
+  const slots = standInRanks({
+    terrain: map.terrain,
+    width: map.width,
+    height: map.height,
+    anchor: front,
+    facing: middle ? facingToward(front, middle) : { dx: 1, dy: 0 },
+    count: party.length,
+    taken,
+    keepClear: foes,
+  });
+  const { spots } = placeByFormation(
+    party.map((token) => ({ id: token.refId, name: token.name })),
+    slots,
+    [],
+    getParty(campaign.id).marchingOrder,
+  );
+  for (const token of party) {
+    const spot = spots.get(token.refId) ?? slots[0];
+    placeToken(token.id, spot.x, spot.y);
+  }
+}
+
 // Placements, hidden enemies, overrides and the DM's note. Every part is
 // best effort against the fight that was actually made: a slot the roster
 // no longer has, or a tile that is now rock, is skipped rather than
 // undoing a fight the enemies are already rolled into.
-export function applyTemplateExtras(campaign: Campaign, userId: string, template: EncounterTemplate) {
+export function applyTemplateExtras(
+  campaign: Campaign,
+  userId: string,
+  template: EncounterTemplate,
+  // How far the nearest enemy stands as the fight opens, when the story
+  // said (run_prepared_encounter's distanceFeet).
+  options: { distanceFeet?: number } = {},
+) {
   const extras = template.extras;
-  const hasBoardWork = extras.placements.length || extras.hidden.length || extras.overrides.length || extras.entry;
+  // A saved map is laid under tokens standing where a generated map put
+  // them, so the party needs standing again on it even with no entry point.
+  const onSavedMap = Boolean(template.map.mapId);
+  const hasBoardWork =
+    extras.placements.length || extras.hidden.length || extras.overrides.length || extras.entry || onSavedMap;
   const encounter = getActiveEncounter(campaign.id);
   if (encounter && hasBoardWork) {
     const map = getBattleMapForEncounter(encounter.id);
@@ -99,17 +170,20 @@ export function applyTemplateExtras(campaign: Campaign, userId: string, template
           moveTo(token.id, placement, token);
         }
       }
-      if (extras.entry) {
-        for (const token of tokens.filter((entry) => entry.kind === "pc")) {
-          moveTo(token.id, extras.entry, token);
-        }
-      }
       for (const slot of extras.hidden) {
         const enemy = matched.get(slot);
         const token = enemy ? getTokenByRef(map.id, enemy.id) : null;
         if (token) {
           setTokenHidden(token.id, true);
         }
+      }
+      // The party by its travel formation, two abreast facing the enemy:
+      // at the entry point when the fight has one, else near where it
+      // stands, never opening in reach; it faces the enemy the party can see, so an
+      // ambusher set hidden does not turn it round. Piling everyone onto the entry tile
+      // in roster order put whoever was made first nearest the door.
+      if (extras.entry || onSavedMap) {
+        standPartyFacingEnemy(campaign, map, extras.entry, options.distanceFeet);
       }
       publishBattleMapUpdate(campaign.id);
     }

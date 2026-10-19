@@ -154,7 +154,9 @@ export function runPreparedEncounter(
     return started;
   }
   const mapError = applyTemplateMap(campaign, template);
-  applyTemplateExtras(campaign, campaign.ownerUserId, template);
+  applyTemplateExtras(campaign, campaign.ownerUserId, template, {
+    distanceFeet: typeof args.distanceFeet === "number" ? args.distanceFeet : undefined,
+  });
   setTemplateCued(template.id, false);
   // The plan rides back with the fight: what it is worth and when it
   // turns, so the storyteller can pay it out and play its phases.

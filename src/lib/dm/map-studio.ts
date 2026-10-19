@@ -109,10 +109,11 @@ export function previewStudioMap(
 }
 
 // Stands everyone somewhere legal on ground that just changed under them.
-// Spawns first, in the generator's own order, so a fresh map opens with the
-// party on one side and the enemies on the other exactly as a new fight
-// does; anyone left over walks to the nearest open tile.
-function restandTokens(map: BattleMap, generated: GeneratedMap) {
+// Spawns first, so a fresh map opens with the party on one side and the
+// enemies on the other exactly as a new fight does: the party in its ranks
+// by the travel formation (formation-logic.ts), not in the order the
+// characters were made; anyone left over walks to the nearest open tile.
+function restandTokens(map: BattleMap, generated: GeneratedMap, marchingOrder: string[]) {
   const tokens = listTokens(map.id);
   const pcs = tokens.filter((token) => token.kind === "pc");
   const enemies = tokens.filter((token) => token.kind === "enemy");
@@ -134,8 +135,15 @@ function restandTokens(map: BattleMap, generated: GeneratedMap) {
       nearestOpenTile(generated.terrain, generated.width, generated.height, clamped, taken),
     );
   };
+  const { spots } = placeByFormation(
+    pcs.map((token) => ({ id: token.refId, name: token.name })),
+    generated.pcSpawns,
+    generated.enemySpawns,
+    marchingOrder,
+  );
+  const formed = pcs.map((token) => spots.get(token.refId) ?? generated.pcSpawns[0]);
   pcs.forEach((token, index) => {
-    const at = place(index, generated.pcSpawns, token);
+    const at = place(index, formed, token);
     // The ground moved, so the round's movement budget starts again: a
     // combatant should not be charged for steps taken on a map that is gone.
     moveToken(token.id, at.x, at.y, 0);
@@ -174,7 +182,7 @@ export function applyStudioMap(campaign: Campaign, settings: StudioSettings): St
     lights: generated.lights,
     seed,
   });
-  restandTokens({ ...map, width: generated.width, height: generated.height }, generated);
+  restandTokens({ ...map, width: generated.width, height: generated.height }, generated, getParty(campaign.id).marchingOrder);
   clearExplored(map.id);
   publishBattleMapUpdate(campaign.id);
   return { ok: true, seed };
