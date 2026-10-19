@@ -248,7 +248,13 @@ function pickSpawnsAtDistance(
   distance: number,
   count: number,
   taken: Set<number>,
+  // Which way the enemy's edge lies from the party (+1 east, -1 west). The
+  // fight opens in front of the party, not behind its rear rank.
+  toward: 1 | -1 = 1,
 ): XY[] {
+  const front = toward > 0 ? Math.max(...party.map((spot) => spot.x)) : Math.min(...party.map((spot) => spot.x));
+  const behind = (x: number) => ((x - front) * toward > 0 ? 0 : 1);
+  const middle = party.reduce((sum, spot) => sum + spot.y, 0) / Math.max(1, party.length);
   const open: Array<XY & { away: number }> = [];
   for (let y = 1; y < height - 1; y += 1) {
     for (let x = 1; x < width - 1; x += 1) {
@@ -267,7 +273,11 @@ function pickSpawnsAtDistance(
     const j = Math.floor(rng() * (i + 1));
     [open[i], open[j]] = [open[j], open[i]];
   }
-  open.sort((a, b) => a.away - b.away);
+  // Ahead of the party first, then nearest, then square in front of it
+  // rather than off a flank; tiles behind it only if the ground ahead runs
+  // out. A whole-tile lateral bucket keeps the seed's shuffle deciding ties.
+  const lateral = (y: number) => Math.round(Math.abs(y - middle));
+  open.sort((a, b) => behind(a.x) - behind(b.x) || a.away - b.away || lateral(a.y) - lateral(b.y));
   const picked = open.slice(0, count).map(({ x, y }) => ({ x, y }));
   for (const spot of picked) {
     taken.add(tileIndex(width, spot.x, spot.y));
@@ -342,6 +352,68 @@ function pickSpawns(
   return picked;
 }
 
+// The party stands together, two abreast and facing the enemy's edge: the
+// first picked tile anchors the front rank and the ranks run back from it,
+// so the travel formation has a real front and rear to put people in
+// (formation-logic.ts placeByFormation). Spread at random across the edge
+// band, as before, a "front" tile could be 60 ft from the casters it was
+// meant to screen. Where walls break the ranks, the nearest open floor to
+// the anchor fills in. Uses no randomness, so a seed's terrain and lights
+// are unchanged.
+function clusterParty(
+  tiles: string[],
+  width: number,
+  height: number,
+  picked: XY[],
+  taken: Set<number>,
+  toward: 1 | -1,
+): XY[] {
+  if (picked.length < 2) {
+    return picked;
+  }
+  for (const spot of picked) {
+    taken.delete(tileIndex(width, spot.x, spot.y));
+  }
+  const anchor = picked[0];
+  const side = anchor.y < height / 2 ? 1 : -1;
+  const inside = (x: number, y: number) => x > 0 && y > 0 && x < width - 1 && y < height - 1;
+  const reach = reachableFrom(tiles, width, height, anchor);
+  const cluster: XY[] = [];
+  const take = (x: number, y: number) => {
+    const idx = tileIndex(width, x, y);
+    if (inside(x, y) && tiles[idx] === TERRAIN.floor && !taken.has(idx) && reach.has(idx)) {
+      cluster.push({ x, y });
+      taken.add(idx);
+    }
+  };
+  // Ranks of two, front first.
+  for (let rank = 0; cluster.length < picked.length && rank < picked.length; rank += 1) {
+    for (const file of [0, side]) {
+      if (cluster.length < picked.length) {
+        take(anchor.x - rank * toward, anchor.y + file);
+      }
+    }
+  }
+  // Walls in the way: the nearest open floor to the anchor, by ring.
+  for (let ring = 1; cluster.length < picked.length && ring < Math.max(width, height); ring += 1) {
+    for (let dy = -ring; dy <= ring && cluster.length < picked.length; dy += 1) {
+      for (let dx = -ring; dx <= ring && cluster.length < picked.length; dx += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === ring) {
+          take(anchor.x + dx, anchor.y + dy);
+        }
+      }
+    }
+  }
+  // Boxed in completely: keep the original picks for whoever is left.
+  for (const spot of picked) {
+    if (cluster.length < picked.length && !taken.has(tileIndex(width, spot.x, spot.y))) {
+      cluster.push(spot);
+      taken.add(tileIndex(width, spot.x, spot.y));
+    }
+  }
+  return cluster;
+}
+
 export function generateBattleMap(input: GenerateInput): GeneratedMap {
   const width = Math.min(MAP_SIZE.maxWidth, Math.max(MAP_SIZE.minWidth, input.width ?? 20));
   const height = Math.min(MAP_SIZE.maxHeight, Math.max(MAP_SIZE.minHeight, input.height ?? 15));
@@ -392,10 +464,11 @@ export function generateBattleMap(input: GenerateInput): GeneratedMap {
   const taken = new Set<number>();
   const pcRange: [number, number] = flip ? [width - 1 - band, width - 1] : [1, 1 + band];
   const enemyRange: [number, number] = flip ? [1, 1 + band] : [width - 1 - band, width - 1];
-  let pcSpawns = pickSpawns(tiles, width, height, rng, pcRange[0], pcRange[1], input.pcCount, taken);
+  const toward: 1 | -1 = flip ? -1 : 1;
+  let pcSpawns = clusterParty(tiles, width, height, pickSpawns(tiles, width, height, rng, pcRange[0], pcRange[1], input.pcCount, taken), taken, toward);
   const pickEnemies = (party: XY[]) =>
     input.enemyDistanceTiles && party.length
-      ? pickSpawnsAtDistance(tiles, width, height, rng, party, Math.max(1, Math.round(input.enemyDistanceTiles)), input.enemyCount, taken)
+      ? pickSpawnsAtDistance(tiles, width, height, rng, party, Math.max(1, Math.round(input.enemyDistanceTiles)), input.enemyCount, taken, toward)
       : pickSpawns(tiles, width, height, rng, enemyRange[0], enemyRange[1], input.enemyCount, taken);
   let enemySpawns = pickEnemies(pcSpawns);
 
@@ -408,7 +481,7 @@ export function generateBattleMap(input: GenerateInput): GeneratedMap {
       }
     }
     pcSpawns = pcSpawns.length < input.pcCount
-      ? pickSpawns(tiles, width, height, rng, pcRange[0], pcRange[1], input.pcCount, taken)
+      ? clusterParty(tiles, width, height, pickSpawns(tiles, width, height, rng, pcRange[0], pcRange[1], input.pcCount, taken), taken, toward)
       : pcSpawns;
     enemySpawns = enemySpawns.length < input.enemyCount ? pickEnemies(pcSpawns) : enemySpawns;
   }
