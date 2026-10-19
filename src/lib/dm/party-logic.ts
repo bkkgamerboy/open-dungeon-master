@@ -1,5 +1,16 @@
 import { normalizeReputation } from "@/lib/dm/faction-logic";
 import { describeFormation, normalizeFormationChange, type FormationChange } from "@/lib/dm/formation-logic";
+import {
+  describePackAnimal,
+  normalizePackAnimals,
+  normalizePlace,
+  normalizeStorage,
+  packReach,
+  packWeightLb,
+  type PackAnimal,
+  type PlaceRef,
+  type StorageBox,
+} from "@/lib/dm/pack-logic";
 
 // The party as a thing in its own right.
 //
@@ -11,7 +22,8 @@ import { describeFormation, normalizeFormationChange, type FormationChange } fro
 //
 // Modelled on dnd5e's data/actor/group.mjs: a party is a container with its
 // own currency and inventory, not a sixth character. It has no hit points, no
-// abilities and no sheet, and nothing here can be attacked or healed.
+// abilities and no sheet. Its pack animals do have hit points, and are the
+// one thing on it a blow can land on (src/lib/dm/pack-logic.ts).
 //
 // Pure by design: no imports at all, so scripts/test-party.mjs can load it and
 // the client can render the pack without a request.
@@ -25,6 +37,11 @@ export type PartyItem = {
   // False while nobody knows what it is, exactly as on a character sheet
   // (src/lib/dm/mutation-math.ts). Absent reads as true.
   identified?: boolean;
+  // What makes a magic or homebrew item that item and not its name: the
+  // content link (the sheet re-reads its mechanics from it) and the charges
+  // left on a wand. Kept so a wand stored in a box comes out the same wand.
+  slug?: string;
+  charges?: number;
 };
 
 export type PartyState = {
@@ -54,6 +71,13 @@ export type PartyState = {
   // What the party is doing between scenes: "resting", "on the road to
   // Dunmar", "searching the archive". One line, shown to the table.
   activity: string;
+  // The beasts of burden that carry the shared pack (src/lib/dm/pack-logic.ts).
+  packAnimals: PackAnimal[];
+  // Where the animals wait when the party went on without them (a dungeon's
+  // mouth, a stable), and the shared pack with them. Null: with the party.
+  animalsLeftAt: PlaceRef | null;
+  // Boxes rented in towns, one a place, used only while the party is there.
+  storage: StorageBox[];
 };
 
 export const PARTY_ITEM_NAME_MAX = 80;
@@ -71,6 +95,9 @@ export function emptyParty(): PartyState {
     marchingOrder: [],
     formationChange: null,
     activity: "",
+    packAnimals: [],
+    animalsLeftAt: null,
+    storage: [],
   };
 }
 
@@ -97,6 +124,10 @@ export function normalizeParty(raw: unknown): PartyState {
       : [],
     formationChange: normalizeFormationChange(record.formationChange),
     activity: String(record.activity ?? "").slice(0, PARTY_ACTIVITY_MAX),
+    packAnimals: normalizePackAnimals(record.packAnimals),
+    // Animals left somewhere are only "left" while there are animals.
+    animalsLeftAt: Array.isArray(record.packAnimals) && record.packAnimals.length ? normalizePlace(record.animalsLeftAt) : null,
+    storage: normalizeStorage(record.storage, normalizeItem),
   };
 }
 
@@ -107,11 +138,15 @@ function normalizeItem(raw: Record<string, unknown>): PartyItem | null {
   }
   const qty = Math.min(9999, Math.max(1, Math.round(Number(raw?.qty) || 1)));
   const weight = Number(raw?.weight);
+  const slug = typeof raw?.slug === "string" ? raw.slug.trim().slice(0, 80) : "";
+  const charges = Number(raw?.charges);
   return {
     name,
     qty,
     ...(Number.isFinite(weight) && weight > 0 ? { weight } : {}),
     ...(raw?.identified === false ? { identified: false } : {}),
+    ...(slug ? { slug } : {}),
+    ...(Number.isInteger(charges) && charges >= 0 ? { charges: Math.min(999, charges) } : {}),
   };
 }
 
@@ -122,21 +157,28 @@ function normalizeItem(raw: Record<string, unknown>): PartyItem | null {
 // kinds of rope. An unidentified item never merges with a known one.
 export function addPartyItem(
   inventory: PartyItem[],
-  item: { name: string; qty?: number; weight?: number; identified?: boolean },
+  item: { name: string; qty?: number; weight?: number; identified?: boolean; slug?: string; charges?: number },
+  // What holds it, for the refusals: the shared pack, or a storage box.
+  holder: "pack" | "box" = "pack",
 ): { inventory: PartyItem[] } | { error: string } {
   const name = item.name.trim().slice(0, PARTY_ITEM_NAME_MAX);
   if (!name) {
-    return { error: "Name what goes in the pack." };
+    return { error: `Name what goes in the ${holder}.` };
   }
   const qty = Math.max(1, Math.round(item.qty ?? 1));
   const known = item.identified !== false;
+  // A wand with three charges is not a wand with seven: rows with their own
+  // content link or charges merge only with their exact twin.
   const index = inventory.findIndex(
     (row) =>
-      row.name.toLowerCase() === name.toLowerCase() && (row.identified !== false) === known,
+      row.name.toLowerCase() === name.toLowerCase() &&
+      (row.identified !== false) === known &&
+      (row.slug ?? "") === (item.slug ?? "") &&
+      row.charges === item.charges,
   );
   if (index < 0) {
     if (inventory.length >= MAX_PARTY_ITEMS) {
-      return { error: `The pack holds ${MAX_PARTY_ITEMS} kinds of thing; hand something out first.` };
+      return { error: `The ${holder} holds ${MAX_PARTY_ITEMS} kinds of thing; take something out first.` };
     }
     return {
       inventory: [
@@ -146,6 +188,8 @@ export function addPartyItem(
           qty,
           ...(item.weight && item.weight > 0 ? { weight: item.weight } : {}),
           ...(known ? {} : { identified: false as const }),
+          ...(item.slug ? { slug: item.slug } : {}),
+          ...(typeof item.charges === "number" ? { charges: item.charges } : {}),
         },
       ],
     };
@@ -159,10 +203,11 @@ export function removePartyItem(
   inventory: PartyItem[],
   name: string,
   qty = 1,
+  holder: "pack" | "box" = "pack",
 ): { inventory: PartyItem[]; removed: number; item: PartyItem } | { error: string } {
   const index = inventory.findIndex((row) => row.name.toLowerCase() === name.trim().toLowerCase());
   if (index < 0) {
-    return { error: `The pack does not hold "${name}".` };
+    return { error: `The ${holder} does not hold "${name}".` };
   }
   const item = inventory[index];
   const removed = Math.min(item.qty, Math.max(1, Math.round(qty)));
@@ -258,11 +303,33 @@ export function describeParty(
   if (party.bankedXp > 0) {
     lines.push(`Unspent party XP: ${party.bankedXp}`);
   }
+  const reach = packReach(party.packAnimals, party.animalsLeftAt, null);
   if (party.inventory.length) {
     lines.push(
-      `Shared pack: ${party.inventory
+      `Shared pack (${packWeightLb(party.inventory)} of ${reach.capacityLb} lb, carried by ${reach.carriedBy}): ${party.inventory
         .map((item) => `${item.name}${item.qty > 1 ? ` x${item.qty}` : ""}`)
         .join(", ")}`,
+    );
+  }
+  if (party.packAnimals.length) {
+    lines.push(
+      `Pack animals: ${party.packAnimals.map(describePackAnimal).join("; ")}. ${
+        party.animalsLeftAt
+          ? `${party.packAnimals.length > 1 ? "They wait" : "It waits"} at ${party.animalsLeftAt.name}, and the shared pack is with ${party.packAnimals.length > 1 ? "them" : "it"}.`
+          : `With the party.`
+      }`,
+    );
+  }
+  if (party.storage.length) {
+    lines.push(
+      `Storage boxes: ${party.storage
+        .map((box) => {
+          const goods = box.inventory.map((item) => `${item.name}${item.qty > 1 ? ` x${item.qty}` : ""}`);
+          const coin = box.copper > 0 ? formatMoney(box.copper) : "";
+          const held = [...goods, ...(coin ? [coin] : [])];
+          return `${box.place.name} (${held.length ? held.join(", ") : "empty"})`;
+        })
+        .join("; ")}`,
     );
   }
   if (partyIds) {

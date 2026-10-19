@@ -40,6 +40,8 @@ import {
 } from "@/lib/characters/catalog";
 import { rollCard } from "@/lib/dm/roll-card";
 import { buildLevelUp } from "@/lib/srd/level-up";
+import { companionWaitsForLead } from "@/lib/dm/companion-level";
+import { insertCharacterEvent } from "@/lib/db/character-events";
 import { freeCantripCount } from "@/lib/srd/free-cantrips";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
 import { publishPersisted, publishWithSeq } from "@/lib/events";
@@ -458,7 +460,37 @@ export async function PATCH(
   // adjust route as before.
   let sheet: CharacterSheet | null;
   let companionPortrait = false;
-  if (typeof body.sheetId === "string" && body.sheetId) {
+  // A party companion whose lead builds their levels (game setting
+  // companionLevelUps 'lead'): whoever runs the story names the sheet and
+  // sends the same level-up a player sends, and that is the only change
+  // this door takes for it.
+  let companionLevel = false;
+  if (typeof body.companionId === "string" && body.companionId) {
+    const target = getSheetById(body.companionId);
+    if (!target || target.campaignId !== campaignId || !target.isCompanion) {
+      return Response.json({ error: "That companion is not in this campaign." }, { status: 404 });
+    }
+    if (!steersStory(context)) {
+      return Response.json(
+        { error: "Only whoever runs the story builds a companion's level-up." },
+        { status: 403 },
+      );
+    }
+    if (!companionWaitsForLead(context.campaign, target)) {
+      return Response.json(
+        {
+          error:
+            target.companionKind === "guest"
+              ? `${target.name} is a guest; guests level on their own.`
+              : "This table levels its companions automatically. Set Companion level-ups to 'you choose' in Table settings to build them yourself.",
+        },
+        { status: 403 },
+      );
+    }
+    delete body.companionId;
+    sheet = target;
+    companionLevel = true;
+  } else if (typeof body.sheetId === "string" && body.sheetId) {
     const target = getSheetById(body.sheetId);
     if (!target || target.campaignId !== campaignId || !target.isCompanion) {
       return Response.json({ error: "That companion is not in this campaign." }, { status: 404 });
@@ -506,6 +538,12 @@ export async function PATCH(
     .filter(([, value]) => value !== undefined)
     .map(([key]) => key);
   const levelingUp = typeof parsed.data.level === "number" && parsed.data.level > sheet.level;
+  if (companionLevel && !levelingUp) {
+    return Response.json(
+      { error: "Only a level-up can be made for a companion from here." },
+      { status: 403 },
+    );
+  }
   if (!levelingUp && patchedKeys.some((key) => !cosmeticKeys.has(key))) {
     return Response.json(
       {
@@ -558,6 +596,16 @@ export async function PATCH(
     }
     const leveled = patchSheet(sheet.id, built.patch);
     publishPersisted(campaignId, "sheet_updated", { sheet: leveled });
+    if (companionLevel && leveled) {
+      insertCharacterEvent({
+        libraryCharacterId: leveled.libraryCharacterId,
+        campaignCharacterId: leveled.id,
+        campaignId,
+        seq: allocateSeq(campaignId),
+        kind: "level_up",
+        summary: `${leveled.name} reached level ${leveled.level}${leveled.subclass ? ` (${leveled.subclass})` : ""}.`,
+      });
+    }
     return Response.json({
       sheet: leveled,
       hpGained: built.hpGained,

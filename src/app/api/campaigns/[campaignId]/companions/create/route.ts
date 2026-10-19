@@ -80,11 +80,13 @@ export async function POST(
   // is held to the rules a player's new character is, and one out of the
   // library enters as a stored character does.
   let admitted;
+  let libraryCharacterId: string | null = null;
   if ("libraryCharacterId" in parsed.data) {
     const character = getCharacterForUser(context.user.id, parsed.data.libraryCharacterId);
     if (!character || character.role !== "companion") {
       return Response.json({ error: "That companion is not in your library." }, { status: 404 });
     }
+    libraryCharacterId = character.id;
     admitted = admitSheet({
       door: "stored",
       level,
@@ -107,7 +109,7 @@ export async function POST(
   const input = admitted.sheet;
   admitted.settle();
 
-  const { sheet } = finalizeNewCompanion(campaign, level, input, "party", input.backstory ?? "");
+  const { sheet } = finalizeNewCompanion(campaign, level, input, "party", input.backstory ?? "", libraryCharacterId);
 
   // Active session: a table note so the DM writes them into the scene next
   // turn. In the lobby the opening narration already reads every party sheet.

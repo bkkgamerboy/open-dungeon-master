@@ -1,6 +1,6 @@
 import { getDatabase, nowIso, parseJson } from "@/lib/db/core";
 import { byName } from "@/lib/language/text-logic";
-import { createSheet, getSheetById, getSheetForUser, listSheetsForUser } from "@/lib/db/sheets";
+import { createSheet, getSheetById, getSheetForUser, linkSheetToLibrary, listSheets, listSheetsForUser } from "@/lib/db/sheets";
 import { adaptSheetToLevel } from "@/lib/characters/adapt";
 import { admitSheet } from "@/lib/characters/admit";
 import { getCampaignById } from "@/lib/db/campaigns";
@@ -13,7 +13,7 @@ import { repairedWeight } from "@/lib/content/item-weights";
 import { dedupeName } from "@/lib/workshop/import";
 import { normalizeCampaignKind, type CampaignKind } from "@/lib/workshop/kind";
 import type { CampaignStatus } from "@/lib/campaign-types";
-import type { CharacterSheet, CreateSheetInput, SheetAttachment } from "@/lib/schemas/sheet";
+import { createSheetSchema, type CharacterSheet, type CreateSheetInput, type SheetAttachment } from "@/lib/schemas/sheet";
 
 // The per-user character library (table library_characters). Campaign play
 // COPIES a library character into character_sheets (copy-on-instantiate);
@@ -419,9 +419,33 @@ export function syncProgressToLibrary(sheetId: string): LibraryCharacter | null 
     return null;
   }
   const character = getCharacter(sheet.libraryCharacterId);
-  if (!character || character.userId !== sheet.userId) {
+  if (!character || !savesTo(character, sheet)) {
     return null;
   }
+  return writeProgress(sheet, character);
+}
+
+// Whose library a campaign copy writes home to. A player's copy is their own
+// row's. A companion's copy is owned by its bot, so the owners never match;
+// its row is the one whoever ran the story brought it in from (or saved it
+// as), filed as an ally the DM plays. Before this, a companion's level-ups
+// never left the table that earned them.
+function savesTo(character: LibraryCharacter, sheet: CharacterSheet): boolean {
+  return character.userId === sheet.userId || (sheet.isCompanion && character.role === "companion");
+}
+
+function restedSpellcasting(spellcasting: CharacterSheet["spellcasting"]): CharacterSheet["spellcasting"] {
+  return spellcasting
+    ? {
+        ...spellcasting,
+        slots: Object.fromEntries(
+          Object.entries(spellcasting.slots).map(([slotLevel, slot]) => [slotLevel, { max: slot.max, used: 0 }]),
+        ),
+      }
+    : spellcasting;
+}
+
+function writeProgress(sheet: CharacterSheet, character: LibraryCharacter): LibraryCharacter | null {
   if (keepsLibraryLevel(sheet.level, character.level)) {
     const kept: CreateSheetInput = {
       ...character.sheet,
@@ -455,17 +479,7 @@ export function syncProgressToLibrary(sheetId: string): LibraryCharacter | null 
     // Level-up ASIs land here as raw scores; the campaign records no
     // AsiChoice for them, so asiChoices keeps only creation-time picks.
     abilities: sheet.abilities,
-    spellcasting: sheet.spellcasting
-      ? {
-          ...sheet.spellcasting,
-          slots: Object.fromEntries(
-            Object.entries(sheet.spellcasting.slots).map(([slotLevel, slot]) => [
-              slotLevel,
-              { max: slot.max, used: 0 },
-            ]),
-          ),
-        }
-      : sheet.spellcasting,
+    spellcasting: restedSpellcasting(sheet.spellcasting),
     maxHp: sheet.maxHp,
     hitDice: { ...sheet.hitDice, spent: 0 },
     ac: sheet.ac,
@@ -490,6 +504,94 @@ export function syncProgressToLibrary(sheetId: string): LibraryCharacter | null 
       character.id,
     );
   return getCharacter(character.id);
+}
+
+// ---- companions ----
+
+export type CompanionSave = {
+  character: LibraryCharacter;
+  // A new library row, rather than progress written onto one already there.
+  created: boolean;
+  // The library level a lower table left alone (issue #36), or null.
+  keptLevel: number | null;
+};
+
+// A companion's campaign copy, saved to the library of whoever runs the
+// story. A copy that is linked writes home like a player's does. One that
+// is not (built from scratch, or brought in before companions kept their
+// link) is matched by name to a companion already in that library, which is
+// the row it was almost certainly brought in from, and linked to it; with no
+// match it becomes a new library companion at the level it plays at. The
+// link is what lets the campaign's end carry its progress home from then on.
+export function saveCompanionToLibrary(sheetId: string, userId: string): CompanionSave | { error: string } {
+  const sheet = getSheetById(sheetId);
+  if (!sheet?.isCompanion) {
+    return { error: "That is not a companion." };
+  }
+  const linked = sheet.libraryCharacterId ? getCharacter(sheet.libraryCharacterId) : null;
+  if (linked && linked.userId !== userId) {
+    return { error: `${sheet.name} is saved in somebody else's library.` };
+  }
+  const wanted = sheet.name.trim().toLowerCase();
+  const target =
+    linked?.role === "companion"
+      ? linked
+      : listCharactersForUser(userId, "companion").find((entry) => entry.name.trim().toLowerCase() === wanted) ?? null;
+  if (target) {
+    if (sheet.libraryCharacterId !== target.id) {
+      linkSheetToLibrary(sheet.id, target.id);
+    }
+    const keptLevel = keepsLibraryLevel(sheet.level, target.level) ? target.level : null;
+    const character = writeProgress(sheet, target);
+    return character ? { character, created: false, keptLevel } : { error: `Could not save ${sheet.name}.` };
+  }
+  const input = libraryInputFromSheet(sheet);
+  if ("error" in input) {
+    return input;
+  }
+  const character = createCharacter(userId, sheet.level, input.sheet, "companion", "", sheet.xp);
+  linkSheetToLibrary(sheet.id, character.id);
+  return { character, created: true, keptLevel: null };
+}
+
+// A campaign's end: every copy with a library row writes home, companions
+// included, and a lasting companion with none is saved to the library of
+// whoever ran the story, so the allies who travelled the whole campaign
+// arrive at the next one as they left this. Guests, summons and the dead
+// stay behind: nobody wants a fallen ally's sheet waiting on the shelf.
+export function carryPartyHome(campaignId: string, storyOwnerId: string | null): void {
+  for (const sheet of listSheets(campaignId)) {
+    if (sheet.libraryCharacterId) {
+      syncProgressToLibrary(sheet.id);
+      continue;
+    }
+    if (
+      storyOwnerId &&
+      sheet.isCompanion &&
+      sheet.companionKind === "party" &&
+      !sheet.summon &&
+      !sheet.deathSaves?.dead
+    ) {
+      saveCompanionToLibrary(sheet.id, storyOwnerId);
+    }
+  }
+}
+
+// A campaign sheet as a library sheet: what play left on it, rested. Hit
+// points, conditions and spent dice are the table's, not the character's.
+function libraryInputFromSheet(sheet: CharacterSheet): { sheet: CreateSheetInput } | { error: string } {
+  const parsed = createSheetSchema.safeParse({
+    ...sheet,
+    equipment: sheet.equipment.slice(0, 60),
+    hitDice: { ...sheet.hitDice, spent: 0 },
+    hitDicePools: sheet.hitDicePools?.map((pool) => ({ ...pool, spent: 0 })) ?? null,
+    spellcasting: restedSpellcasting(sheet.spellcasting),
+  });
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return { error: `${sheet.name} could not be saved: ${issue?.path.join(".") || "sheet"} ${issue?.message ?? "is not valid"}.` };
+  }
+  return { sheet: parsed.data };
 }
 
 // ---- where a character is playing ----

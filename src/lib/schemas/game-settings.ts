@@ -177,6 +177,12 @@ export const gameSettingsSchema = z.object({
   // own cap so a temporary ally never eats a party slot.
   maxCompanions: z.number().int().min(1).max(4).default(2),
   maxGuests: z.number().int().min(1).max(4).default(2),
+  // Who builds a lasting companion's level-up. 'lead': it waits, like a
+  // player's, for whoever runs the story to take it in the level-up dialog
+  // (hit points, scores or a feat, spells, the subclass). 'auto': the engine
+  // takes it the moment the experience lands (src/lib/dm/companion-level.ts).
+  // Guests are temporary and always level on their own.
+  companionLevelUps: z.enum(["lead", "auto"]).default("lead"),
   // Server-tracked standing between each character and each NPC or AI
   // companion: one approval meter from hostility to devotion, plus a memory
   // of the beats that got them there (src/lib/dm/relationship-logic.ts).

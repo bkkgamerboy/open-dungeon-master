@@ -1,6 +1,8 @@
 "use client";
 
 import { TravelFormation } from "@/app/campaigns/[campaignId]/TravelFormation";
+import { PartyPackPanel } from "@/app/campaigns/[campaignId]/PartyPackPanel";
+import type { PlaceRef } from "@/lib/dm/pack-logic";
 import type { PartyState } from "@/lib/dm/party-logic";
 import { fieldedOf } from "@/lib/player-characters";
 import { Bot, Check, Crown, Heart, ImagePlus, PawPrint, Save, Sparkles, UserPlus } from "lucide-react";
@@ -29,13 +31,19 @@ import type { CampaignMember } from "@/lib/campaign-types";
 import type { Note } from "@/lib/db/notes";
 import type { Genre, LastingCompanionBlock } from "@/lib/schemas/game-settings";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
-import { computeSheetDerived, formatModifier } from "@/lib/srd";
+import { computeSheetDerived, formatModifier, levelForXp } from "@/lib/srd";
+import type { HpMethod } from "@/lib/srd/hit-points";
 import { usePackArt } from "@/lib/worlds/use-pack-art";
 
 // The portrait cropper (and its cropping library) loads when a portrait is
 // being cropped, not with the table.
 const AvatarCropDialog = lazy(() =>
   import("@/app/settings/AvatarCropDialog").then((module) => ({ default: module.AvatarCropDialog })),
+);
+// The level-up dialog, for a companion whose lead builds their levels; a
+// player's own opens from the session view.
+const LevelUpDialog = lazy(() =>
+  import("@/app/campaigns/[campaignId]/LevelUpDialog").then((module) => ({ default: module.LevelUpDialog })),
 );
 
 // Inspiration held (resources.inspiration, used below its one use).
@@ -230,27 +238,41 @@ function HandToDmButton({
 // A table below the library character's level saves gear, gold and notes
 // only; the library keeps its own level (issue #36), and the button says so
 // for a moment instead of a bare "Saved".
-function SaveToLibraryButton({ campaignId, sheetId }: { campaignId: string; sheetId: string }) {
+// A companion's card has one too, for whoever runs the story: it saves the
+// ally to their own library (companions/[id]/library), linking it first if
+// it was never linked, and says when that made a new library entry.
+function SaveToLibraryButton({ campaignId, sheetId, companion = false }: { campaignId: string; sheetId: string; companion?: boolean }) {
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
   const [keptLevel, setKeptLevel] = useState<number | null>(null);
+  const [created, setCreated] = useState(false);
+  const [error, setError] = useState("");
   async function save() {
     setState("saving");
+    setError("");
     try {
       // The card's own sheet: a player fielding several has a button on each.
-      const response = await fetch(`/api/campaigns/${campaignId}/sheet/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ characterId: sheetId }),
-      });
-      const data = response.ok ? await response.json().catch(() => ({})) : {};
-      const kept = typeof data.keptLevel === "number" ? data.keptLevel : null;
+      const response = companion
+        ? await fetch(`/api/campaigns/${campaignId}/companions/${sheetId}/library`, { method: "POST" })
+        : await fetch(`/api/campaigns/${campaignId}/sheet/sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterId: sheetId }),
+          });
+      const data = await response.json().catch(() => ({}));
+      const kept = response.ok && typeof data.keptLevel === "number" ? data.keptLevel : null;
       setKeptLevel(kept);
+      setCreated(response.ok && data.created === true);
+      if (!response.ok) {
+        setError(typeof data.error === "string" ? data.error : "Could not save to your library.");
+      }
       setState(response.ok ? "saved" : "idle");
       if (response.ok) {
+        const shown = kept === null && data.created !== true ? 2_000 : 5_000;
         setTimeout(() => {
           setState("idle");
           setKeptLevel(null);
-        }, kept === null ? 2_000 : 5_000);
+          setCreated(false);
+        }, shown);
       }
     } catch {
       setState("idle");
@@ -276,6 +298,10 @@ function SaveToLibraryButton({ campaignId, sheetId }: { campaignId: string; shee
           Level {keptLevel} kept in your library; this table is below it.
         </p>
       ) : null}
+      {state === "saved" && created ? (
+        <p className="reveal text-center text-[11px] text-emerald-300">Added to your library as a companion.</p>
+      ) : null}
+      {error ? <p className="reveal text-center text-[11px] text-red-300">{error}</p> : null}
     </div>
   );
 }
@@ -313,9 +339,20 @@ export function PartyPanel({
   onLevelUp,
   party,
   arrangesFormation = false,
+  companionLevelUps = "lead",
+  multiclassAllowed = true,
+  hpMethod = "average",
+  here = null,
 }: {
+  // Where the party stands, for the pack animals and the town boxes.
+  here?: PlaceRef | null;
   sheets: CharacterSheet[];
   meUserId: string;
+  // Who builds a party companion's level-up (game setting), and the table's
+  // rules the dialog follows when it is the lead.
+  companionLevelUps?: "lead" | "auto";
+  multiclassAllowed?: boolean;
+  hpMethod?: HpMethod;
   // The party record, for the travel formation, and whether this seat
   // arranges it (the party lead, or the DM seat where a person runs it).
   party?: PartyState;
@@ -377,6 +414,7 @@ export function PartyPanel({
   const [croppingSheetId, setCroppingSheetId] = useState("");
   const [notesSheetId, setNotesSheetId] = useState("");
   const [buildingCompanion, setBuildingCompanion] = useState(false);
+  const [levelingCompanionId, setLevelingCompanionId] = useState("");
   const [tradingWithId, setTradingWithId] = useState("");
   const [switching, setSwitching] = useState("");
   const [switchError, setSwitchError] = useState("");
@@ -405,6 +443,7 @@ export function PartyPanel({
   }
   const editingSheet = sheets.find((sheet) => sheet.id === editingSheetId);
   const viewingSheet = sheets.find((sheet) => sheet.id === viewingSheetId);
+  const levelingCompanion = levelingCompanionId ? sheets.find((sheet) => sheet.id === levelingCompanionId) : undefined;
   const croppingSheet = sheets.find((sheet) => sheet.id === croppingSheetId);
   const notesSheet = sheets.find((sheet) => sheet.id === notesSheetId);
   // Who a condition's metadata may name: the party, and the fight's order as
@@ -848,6 +887,24 @@ export function PartyPanel({
               </KitButton>
             ) : null}
 
+            {campaignId &&
+            steersStory &&
+            sheet.isCompanion &&
+            companionLevelUps === "lead" &&
+            sheet.companionKind !== "guest" &&
+            !sheet.summon &&
+            !sheet.deathSaves?.dead &&
+            Math.min(20, levelForXp(sheet.xp)) > sheet.level ? (
+              <KitButton
+                tone="primary"
+                onClick={() => setLevelingCompanionId(sheet.id)}
+                title={`${sheet.name} has the experience for a new level; you choose how they grow`}
+                className="reveal mt-2 w-full justify-center"
+              >
+                <Sparkles className="size-3.5" /> Level up {sheet.name} to {sheet.level + 1}
+              </KitButton>
+            ) : null}
+
             {campaignId && steersStory && !sheet.isCompanion && sheet.libraryRole === "companion" ? (
               <HandToDmButton campaignId={campaignId} sheet={sheet} blocked={companionBlock} onOpenSettings={onOpenSettings} />
             ) : null}
@@ -870,6 +927,9 @@ export function PartyPanel({
                 ) : null}
                 {mine && sheet.libraryCharacterId ? (
                   <SaveToLibraryButton campaignId={sheet.campaignId} sheetId={sheet.id} />
+                ) : null}
+                {sheet.isCompanion && steersStory && sheet.companionKind !== "guest" && !sheet.summon ? (
+                  <SaveToLibraryButton campaignId={sheet.campaignId} sheetId={sheet.id} companion />
                 ) : null}
               </div>
             ) : null}
@@ -901,6 +961,20 @@ export function PartyPanel({
         />
       ) : null}
 
+      {/* The shared pack, the animals that carry it and the town boxes. */}
+      {campaignId ? (
+        <PartyPackPanel
+          campaignId={campaignId}
+          party={party}
+          sheets={sheets}
+          meUserId={meUserId}
+          steersStory={steersStory}
+          decides={arrangesFormation || steersStory}
+          here={here}
+          inCombat={inCombat}
+        />
+      ) : null}
+
       {buildingCompanion && campaignId ? (
         <CompanionBuilderDialog
           campaignId={campaignId}
@@ -909,6 +983,19 @@ export function PartyPanel({
           humanDm={humanDmTable}
           onClose={() => setBuildingCompanion(false)}
         />
+      ) : null}
+
+      {levelingCompanion && campaignId ? (
+        <Suspense fallback={null}>
+          <LevelUpDialog
+            campaignId={campaignId}
+            sheet={levelingCompanion}
+            companion
+            multiclassAllowed={multiclassAllowed}
+            hpMethod={hpMethod}
+            onDone={() => setLevelingCompanionId("")}
+          />
+        </Suspense>
       ) : null}
 
       {editingSheet ? (

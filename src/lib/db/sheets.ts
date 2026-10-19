@@ -226,6 +226,17 @@ export function adoptSheetAsCompanion(
   return getSheetById(sheetId);
 }
 
+// Ties a campaign copy to the library character it is saved as. A companion
+// built before companions kept their link, or one built from scratch, is
+// linked the first time whoever runs the story saves it, so the campaign's
+// end can carry its progress home from then on.
+export function linkSheetToLibrary(sheetId: string, libraryCharacterId: string): CharacterSheet | null {
+  getDatabase()
+    .prepare(`UPDATE character_sheets SET library_character_id = ? WHERE id = ?`)
+    .run(libraryCharacterId, sheetId);
+  return getSheetById(sheetId);
+}
+
 // Marks a sheet as a creature a spell or feature made (src/lib/dm/summon-store.ts),
 // or clears the mark. Kept out of patchSheet like the companion flag above.
 export function setSheetSummon(sheetId: string, summon: CharacterSheet["summon"]): CharacterSheet | null {

@@ -62,6 +62,21 @@ export function NarratorFields({
                   options={[1, 2, 3, 4].map((count) => ({ value: String(count), label: String(count) }))}
                 />
               </label>
+              {draft.companions !== "guests" ? (
+                <label className="col-span-2 block">
+                  <span className="mb-1 block text-xs text-stone-500">Party members&rsquo; level-ups</span>
+                  <Select<GameSettings["companionLevelUps"]>
+                    value={draft.companionLevelUps}
+                    onChange={(companionLevelUps) => patch({ companionLevelUps })}
+                    label="Party members' level-ups"
+                    className="w-full"
+                    options={[
+                      { value: "lead", label: "You choose", hint: "Their card offers Level up; you pick hit points, scores, spells and subclass." },
+                      { value: "auto", label: "Automatic", hint: "The game picks for them when they earn it." },
+                    ]}
+                  />
+                </label>
+              ) : null}
             </div>
           ) : null}
         </div>

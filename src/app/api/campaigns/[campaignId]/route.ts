@@ -18,7 +18,7 @@ import { currentCoordination } from "@/lib/dm/coordination";
 import { getAmbience } from "@/lib/db/ambience";
 import { captureBoundarySnapshot } from "@/lib/db/snapshots";
 import { listRecentCampaignEvents } from "@/lib/db/character-events";
-import { libraryRolesFor, syncProgressToLibrary } from "@/lib/db/characters";
+import { carryPartyHome, libraryRolesFor } from "@/lib/db/characters";
 import { activePublicEncounter } from "@/lib/db/encounter-view";
 import { listNotesVisibleTo } from "@/lib/db/notes";
 import { listOpenPendingRolls, publicPendingRoll } from "@/lib/db/dm-turns";
@@ -268,14 +268,11 @@ export async function PATCH(
   setCampaignStatus(campaignId, nextStatus);
   publishPersisted(campaignId, "campaign_updated", { status: nextStatus });
 
-  // Campaign over: write durable progression back to each player's library
-  // character (level, XP, gold, gear, spells; never HP or conditions).
+  // Campaign over: write durable progression back to each library
+  // character (level, XP, gold, gear, spells; never HP or conditions), the
+  // party's companions included (src/lib/db/characters.ts carryPartyHome).
   if (nextStatus === "ended") {
-    for (const sheet of listSheets(campaignId)) {
-      if (sheet.libraryCharacterId) {
-        syncProgressToLibrary(sheet.id);
-      }
-    }
+    carryPartyHome(campaignId, campaign.dmUserId ?? campaign.leadUserId ?? null);
   }
 
   // Kick off the adventure: a table note the DM answers with the opening

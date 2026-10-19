@@ -84,10 +84,14 @@ export function LevelUpDialog({
   sheet,
   multiclassAllowed = true,
   hpMethod = "average",
+  companion = false,
   onDone,
 }: {
   campaignId: string;
   sheet: CharacterSheet;
+  // A party companion whose lead builds their levels: the request names the
+  // sheet, and the server holds it to whoever runs the story.
+  companion?: boolean;
   // The level on offer. A level-up takes the next level only; the dialog
   // opens again for the one after.
   targetLevel?: number;
@@ -578,6 +582,7 @@ export function LevelUpDialog({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(companion ? { companionId: sheet.id } : {}),
           level: targetLevel,
           levelUpClass: classChoice,
           ...(hpMethod === "rolled" ? { hpChoice } : {}),

@@ -1,4 +1,5 @@
 import type { SystemGlyph } from "@/lib/system-glyphs";
+import { restAnimals } from "@/lib/dm/party-pack";
 import { z } from "zod";
 import { allocateSeq, type Campaign } from "@/lib/db/campaigns";
 import { getActiveEncounter } from "@/lib/db/encounters";
@@ -259,6 +260,8 @@ export function handleTakeRest(
     const resilience = authoredRestTempHp(campaign, resting);
     // Tranquility: an Open Hand monk wakes under Sanctuary (srd-defenses.ts).
     tranquilityAfterLongRest(campaign, resting);
+    // The pack animals graze and rest too (src/lib/dm/party-pack.ts).
+    restAnimals(campaign.id);
     tableNote(
       campaign,
       `The party takes a long rest (${restedFor})${nowReads ? `. It is now ${nowReads}` : ""}.${

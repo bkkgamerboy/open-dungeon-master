@@ -412,16 +412,19 @@ export function finalizeNewCompanion(
   input: CreateSheetInput,
   kind: "party" | "guest",
   personality: string,
+  // The library row a companion was brought in from, kept on the copy so its
+  // progress can go home again (src/lib/db/characters.ts savesTo).
+  libraryCharacterId: string | null = null,
 ): { sheet: CharacterSheet; hadEncounter: boolean } {
   const botUser = createCompanionUser(input.name);
-  const created = createSheet(campaign.id, botUser.id, level, input);
+  const created = createSheet(campaign.id, botUser.id, level, input, libraryCharacterId);
   const sheet = markSheetAsCompanion(created.id, kind, personality) ?? created;
   publishPersisted(campaign.id, "sheet_updated", { sheet });
   // A companion the party once travelled with can be written back in; every
   // standing with them picks up exactly where it stopped.
   rejoinRelationshipsWithSubject(campaign.id, sheet.name, sheet.id);
   insertCharacterEvent({
-    libraryCharacterId: null,
+    libraryCharacterId,
     campaignCharacterId: sheet.id,
     campaignId: campaign.id,
     seq: allocateSeq(campaign.id),
@@ -618,4 +621,4 @@ export function applyCompanionCall(
 // A companion's level-up lives beside the legality check it goes through
 // (src/lib/dm/companion-level.ts); exported from here because this is where
 // every caller has always found it.
-export { autoLevelCompanion } from "@/lib/dm/companion-level";
+export { autoLevelCompanion, companionWaitsForLead } from "@/lib/dm/companion-level";

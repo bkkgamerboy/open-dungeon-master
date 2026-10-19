@@ -172,7 +172,7 @@ import {
   RELATIONSHIP_TOOL_NAMES,
   relationshipRosterForPrompt,
 } from "@/lib/dm/relationship-tools";
-import { PARTY_TOOL_NAMES, partyTools } from "@/lib/dm/party-tools";
+import { PARTY_TOOL_NAMES, packAnimalTools, partyTools } from "@/lib/dm/party-tools";
 import { SCENE_TOOL_NAMES, sceneTools } from "@/lib/dm/scene-tools";
 import { AMBIENCE_TOOL_NAMES, ambienceTools, followSceneAmbience } from "@/lib/dm/ambience-tools";
 import { MOUNT_TOOL_NAMES, mountTools } from "@/lib/dm/mount-tools";
@@ -758,6 +758,9 @@ export function dmTurnTools(
     // the rest of the world tools: nobody rummages in the group kit while
     // initiative is running.
     ...(inEncounter ? [] : partyTools),
+    // The pack animals: out of a fight always (a farmer's thanks can be a
+    // mule), and in one while there is an animal to strike.
+    ...(!inEncounter || campaign.party?.packAnimals?.length ? packAnimalTools : []),
     // Effects are offered in and out of combat: a blessing lands mid-fight
     // as often as a curse lands in a throne room.
     ...effectTools,

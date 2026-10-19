@@ -63,7 +63,7 @@ import { getActiveEncounter } from "@/lib/db/encounters";
 import { payToStand } from "@/lib/dm/stand-up";
 import { copyCost, learnProblem } from "@/lib/dm/learn-rules";
 import { getAuditPreImage, listAuditForTurn, listAuditSince } from "@/lib/db/sheet-audit";
-import { autoLevelCompanion } from "@/lib/dm/companion-tools";
+import { autoLevelCompanion, companionWaitsForLead } from "@/lib/dm/companion-tools";
 import {
   describeExhaustion,
   effectiveMaxHp,
@@ -663,9 +663,11 @@ export function applyDmMutation(
       audit(campaign, turnId, sheet, "award_xp", { amount, newXp }, reason, { xp: newXp });
       publishSheet(campaign, sheet.id);
       if (levelForXp(newXp) > sheet.level) {
-        // Companions have no level-up dialog; the server applies a plain
-        // level-up right away instead of announcing an available one.
-        if (sheet.isCompanion) {
+        // A party companion at a table whose lead builds their level-ups
+        // waits like a player's character: the level is announced and the
+        // card offers the dialog (companionLevelUps 'lead'). Otherwise, and
+        // for a guest always, the server takes the level right away.
+        if (sheet.isCompanion && !companionWaitsForLead(campaign, sheet)) {
           const leveled = autoLevelCompanion(campaign, sheet.id);
           if (leveled) {
             companionLevelUps.push(leveled);

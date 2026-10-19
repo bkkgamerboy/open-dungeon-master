@@ -882,6 +882,23 @@ export function GameSettingsPanel({
                   />
                 </span>
               ) : null}
+              {settings.companions !== "guests" ? (
+                <Tooltip content="Who builds a party companion's level-up. You choose: when they have the experience, their card in the Party tab shows Level up, and you pick their hit points, scores or feat, spells and subclass the way you do for your own character. Automatic: the game picks for them the moment they earn it. Guests always level on their own.">
+                  <span className="inline-flex min-w-0 max-w-full">
+                    <Select<GameSettings["companionLevelUps"]>
+                      size="sm"
+                      label="Companion level-ups"
+                      value={settings.companionLevelUps}
+                      onChange={(companionLevelUps) => patch({ companionLevelUps })}
+                      options={[
+                        { value: "lead", label: "level-ups: you choose" },
+                        { value: "auto", label: "level-ups: automatic" },
+                      ]}
+                      className={selectClass}
+                    />
+                  </span>
+                </Tooltip>
+              ) : null}
               <span className="inline-flex min-w-0 max-w-full" title="Most temporary guest allies allowed at once">
                 <Select
                   size="sm"

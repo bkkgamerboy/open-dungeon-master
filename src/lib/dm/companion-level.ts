@@ -243,6 +243,21 @@ function improvedScores(before: AbilityScores, after: AbilityScores): string {
   return raised.length ? ` Improved: ${raised.join(", ")}.` : "";
 }
 
+// Whether a companion's next level waits for whoever runs the story to
+// build it in the level-up dialog (game setting companionLevelUps). Only a
+// lasting party member does: a guest is gone by the next scene and nobody
+// should be asked to plan one's career.
+export function companionWaitsForLead(
+  campaign: Pick<Campaign, "gameSettings">,
+  sheet: Pick<CharacterSheet, "isCompanion" | "companionKind">,
+): boolean {
+  return (
+    sheet.isCompanion &&
+    sheet.companionKind !== "guest" &&
+    (campaign.gameSettings.companionLevelUps ?? "lead") === "lead"
+  );
+}
+
 // Companions have no level-up dialog, so an XP award that crosses a level
 // threshold levels them on the spot, one level after another, each built
 // from the companion's own choices: hit points by the table's method, the

@@ -217,6 +217,7 @@ export function CreateCampaignDialog({
       abilityRerollBelow,
       maxCompanions,
       maxGuests,
+      companionLevelUps,
       worldPack,
       voiceChat,
       houseRules,
@@ -274,6 +275,7 @@ export function CreateCampaignDialog({
             abilityRerollBelow,
             maxCompanions,
             maxGuests,
+            companionLevelUps,
             worldPack,
             voice: voiceChat,
             // Three gameSettings fields are deliberately not offered here.

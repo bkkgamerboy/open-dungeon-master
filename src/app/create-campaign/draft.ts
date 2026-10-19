@@ -84,6 +84,7 @@ export type CampaignDraft = {
   abilityRerollBelow: GameSettings["abilityRerollBelow"];
   maxCompanions: number;
   maxGuests: number;
+  companionLevelUps: GameSettings["companionLevelUps"];
   voiceChat: GameSettings["voice"];
 };
 
@@ -147,6 +148,7 @@ export const DEFAULT_DRAFT: CampaignDraft = {
   abilityRerollBelow: null,
   maxCompanions: 2,
   maxGuests: 2,
+  companionLevelUps: "lead",
   voiceChat: {
     enabled: true,
     turnEnforcement: "soft",

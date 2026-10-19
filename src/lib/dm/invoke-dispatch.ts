@@ -30,7 +30,7 @@ import {
 } from "@/lib/dm/relationship-tools";
 import { handleTakeRest } from "@/lib/dm/rest-tools";
 import { handleNpcReaction, handleSetNpc, handleSocialCheck } from "@/lib/dm/social-tools";
-import { handlePartyStash } from "@/lib/dm/party-tools";
+import { handlePackAnimal, handlePartyStash, handlePartyStorage } from "@/lib/dm/party-tools";
 import { handleClearEffect, handleSetEffect } from "@/lib/dm/effect-tools";
 import { handleEndScene, handleSceneCheck, handleStartScene } from "@/lib/dm/scene-tools";
 import { handlePlaySting, handleSetAmbience } from "@/lib/dm/ambience-tools";
@@ -199,6 +199,10 @@ export async function dispatchAdjudication(
       return handleFactionNote(campaign, rawArguments);
     case "party_stash":
       return handlePartyStash(campaign, rawArguments, sheets, sheetsById);
+    case "pack_animal":
+      return handlePackAnimal(campaign, rawArguments);
+    case "party_storage":
+      return handlePartyStorage(campaign, rawArguments, sheets, sheetsById);
     case "set_effect":
       return handleSetEffect(campaign, rawArguments, sheets, sheetsById);
     case "clear_effect":

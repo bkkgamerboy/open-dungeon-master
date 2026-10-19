@@ -419,6 +419,13 @@ export function SidePanelRouter({
                 multiCharacter={campaign?.gameSettings?.multiCharacter ?? "off"}
                 levelUpLevel={levelUpLevel}
                 onLevelUp={onLevelUp}
+                companionLevelUps={campaign?.gameSettings?.companionLevelUps ?? "lead"}
+                here={(() => {
+                  const current = locations.find((location) => location.isCurrent);
+                  return current ? { id: current.id, name: current.name } : null;
+                })()}
+                multiclassAllowed={campaign?.gameSettings?.multiclassingEnabled ?? true}
+                hpMethod={campaign?.gameSettings?.hpMethod ?? "average"}
                 companionsAvailable={
                   campaign?.gameSettings
                     ? companionSlotsFree(
