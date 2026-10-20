@@ -1266,6 +1266,9 @@ export function BattleMapPanel({
           })}
         </p>
       )}
+      {/* An area being aimed from the Hand says what it catches here, sheet
+          or no sheet. */}
+      {areaAim.active && !sheetOpen ? moveModes : null}
       {error ? <p className="text-[11px] text-red-400">{error}</p> : null}
       {actionSheet}
     </>
