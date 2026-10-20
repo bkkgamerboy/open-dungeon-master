@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import {
   Eraser,
   Footprints,
+  LocateFixed,
   Lock,
   Maximize2,
   MapPin,
@@ -74,6 +75,12 @@ import type { StageToken } from "@/app/campaigns/[campaignId]/BoardStage";
 import type { TokenIntent } from "@/lib/battlemap/intent";
 import { familyIconPath } from "@/lib/icons";
 import { TabletopOrder } from "@/app/campaigns/[campaignId]/CinematicParts";
+import { CompactActionSheet, CompactTurnRow, CompactTurnStrip } from "@/app/campaigns/[campaignId]/BoardCompact";
+import { useCompactBoard } from "@/app/campaigns/[campaignId]/useCompactBoard";
+
+// How many tiles across the compact board shows at rest: a figure about the
+// size of a fingertip on an upright phone.
+const COMPACT_TILES_ACROSS = 9;
 
 // The tactical battle map tab.
 //
@@ -299,12 +306,39 @@ export function BattleMapPanel({
     () => (turnToken ? { x: turnToken.x, y: turnToken.y } : null),
     [turnToken],
   );
+  // A phone held upright (useCompactBoard.ts): the board fills the screen,
+  // close up on whoever's turn it is (on your own figure while exploring),
+  // with its chrome around it rather than over it.
+  // The DM's seat keeps the board as it was: its tools, its camera pull and
+  // its wheel of rulings all live on the board.
+  const compact = useCompactBoard() && !canDirect;
+  const ownToken = view.myTokenId ? tokensById.get(view.myTokenId) : undefined;
+  // Whoever is up and the nearest enemy they can see, both in frame: the
+  // view rests on the point between them when they are close enough to
+  // share it, else on whoever is up.
+  const closeFocus = useMemo(() => {
+    const at = turnTile ?? (ownToken ? { x: ownToken.x, y: ownToken.y } : null);
+    if (!at) {
+      return null;
+    }
+    const foe = view.tokens
+      .filter((token) => token.kind === "enemy" && !token.hidden)
+      .map((token) => ({ token, gap: Math.max(Math.abs(token.x - at.x), Math.abs(token.y - at.y)) }))
+      .sort((a, b) => a.gap - b.gap)[0];
+    return foe && foe.gap <= COMPACT_TILES_ACROSS - 2
+      ? { x: (at.x + foe.token.x) / 2, y: (at.y + foe.token.y) / 2 }
+      : at;
+  }, [turnTile, ownToken, view.tokens]);
   const { frameRef, attachFrame, ...cam } = useBoardCamera(view.width, view.height, {
     followTurn: followTurn && !canDirect,
     turnTile,
     remote: camera,
     onRemoteHandled: onCameraDone,
     isDirector: canDirect,
+    closeUp:
+      compact
+        ? { tiles: COMPACT_TILES_ACROSS, focus: closeFocus, turnId: `${view.round}:${view.turn?.tokenId ?? ""}` }
+        : null,
   });
 
   // A focusing ping opens the board on every client. That is an adjustment
@@ -911,7 +945,7 @@ export function BattleMapPanel({
   // board on screen carries it (the open tabletop covers the panel). Both
   // boards drawing it let the tabletop take it and close with it, leaving
   // the panel's board bare.
-  const gridWith = (picture: HTMLCanvasElement | null) => (
+  const gridWith = (picture: HTMLCanvasElement | null, bare = false) => (
     <div
       ref={attachFrame}
       tabIndex={0}
@@ -1000,7 +1034,7 @@ export function BattleMapPanel({
             onPointerCancel={onDrawCancel}
           />
         ) : null}
-        {hudToken ? (
+        {hudToken && !(bare && !canDirect) ? (
           <TokenHud
             token={hudToken}
             boardWidth={view.width}
@@ -1052,7 +1086,7 @@ export function BattleMapPanel({
       </div>
       {/* The chrome of the stage (BoardChrome.tsx), fixed to the frame so it
           stays put while the camera moves under it. */}
-      {!scene && encounter ? (
+      {!scene && encounter && !bare ? (
         <InitiativeRail
           encounter={encounter}
           round={view.round}
@@ -1060,7 +1094,7 @@ export function BattleMapPanel({
           onOpen={() => setOrderOpen(true)}
         />
       ) : null}
-      {!scene ? (
+      {!scene && !bare ? (
         <TurnHud
           actorName={view.currentTurnName}
           mine={myTurn}
@@ -1077,7 +1111,7 @@ export function BattleMapPanel({
       ) : null}
       {fieldRoll ? <FieldDie label={fieldRoll.label} /> : null}
       <BoardMoveNotes notes={moveNotes.notes} />
-      {targeting ? (
+      {targeting && !bare ? (
         <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2.5 rounded-[10px] border border-[rgba(224,112,58,0.5)] bg-[rgba(13,11,28,0.94)] px-3 py-1.5 shadow-elev-2">
           <span className="whitespace-nowrap font-display text-[10px] font-semibold uppercase tracking-[0.18em] text-[#ffbe8f]">
             {targeting === "attack" ? "Attack" : "Cast"} · pick a target
@@ -1102,6 +1136,19 @@ export function BattleMapPanel({
       <span className="sr-only" aria-live="polite">
         {!scene && view.currentTurnName ? (myTurn ? "Your turn." : `${view.currentTurnName}'s turn.`) : ""}
       </span>
+      {bare ? (
+        // One way back to rest on the compact board: pinch zooms and a drag
+        // pans, so the zoom and fit buttons only covered the fight.
+        <button
+          type="button"
+          onClick={cam.reset}
+          aria-label="Centre on the turn"
+          title="Centre on whoever is up"
+          className="motion-press absolute bottom-2 right-2 z-10 flex size-9 items-center justify-center rounded-full border border-[rgba(212,171,58,0.55)] bg-[rgba(13,11,28,0.85)] text-[#ecd287] shadow-elev-1"
+        >
+          <LocateFixed className="size-4" />
+        </button>
+      ) : (
       <div className="board-corner">
       {myTurn && !scene && !targeting ? (
         <button
@@ -1137,7 +1184,8 @@ export function BattleMapPanel({
         }
       />
       </div>
-      {cam.locked ? null : <BoardKeyStrip />}
+      )}
+      {cam.locked || bare ? null : <BoardKeyStrip />}
       {cam.locked ? (
         <div className="absolute bottom-2 left-2 z-10 flex items-center gap-2 rounded-md border border-amber-800/60 bg-stone-950/90 px-2 py-1 text-[11px] text-amber-200 shadow-elev-1">
           <Lock className="size-3" />
@@ -1156,6 +1204,72 @@ export function BattleMapPanel({
   // what the board is waiting for (or why a move is refused), and the aim's
   // target chips. The enlarged tabletop drew the grid alone, so a player who
   // enlarged it lost the move picker and every hint (issue #189).
+  const moveModes = (
+    <BoardMoveHints
+      moveMode={moveMode}
+      moves={!canDirect && canMove && !areaAim.active ? view.moves : undefined}
+      onMode={setMoveMode}
+      areaHint={areaAim.hint}
+      caught={areaAim.caught}
+    />
+  );
+  const aimChips = targeting ? (
+    <TargetChips
+      targets={aimTargets.map((entry) => ({
+        token: entry.token,
+        face: faceOfToken(entry.token),
+        health: view.tokenHealth[entry.token.id],
+        feet: entry.feet,
+      }))}
+      onPick={handleToken}
+      onHover={setAimHoverId}
+    />
+  ) : null;
+  // The compact board's sheet (BoardCompact.tsx): your figure's actions,
+  // the move modes under them, the targets while one is being chosen.
+  const sheetOpen = compact && !canDirect && Boolean(hudToken);
+  const actionSheet = sheetOpen && hudToken ? (
+    <CompactActionSheet
+      name={hudToken.name}
+      actions={hudActions}
+      aiming={targeting ? (targeting === "attack" ? "Attack" : "Cast") : null}
+      onCancelAim={() => {
+        setTargeting(null);
+        setAimHoverId(null);
+      }}
+      onClose={() => {
+        setHudTokenId(null);
+        setTargeting(null);
+        setAimHoverId(null);
+      }}
+    >
+      {targeting ? aimChips : canMove ? moveModes : null}
+    </CompactActionSheet>
+  ) : null;
+  const compactUnder = (
+    <>
+      {sheetOpen ? null : (
+        <p className="text-[11px] leading-4 text-stone-500">
+          {myTurn && !scene ? "Tap a lit tile to move, or your figure for actions." : boardHintText({
+            canDirect,
+            tool,
+            teleporting: Boolean(teleporting),
+            held: Boolean(held),
+            liveOrigin: Boolean(liveOrigin),
+            pointing,
+            drawing,
+            targeting: Boolean(targeting),
+            canMove,
+            scene,
+            budgetLeft: view.budgetLeft,
+            hasToken: Boolean(view.myTokenId),
+          })}
+        </p>
+      )}
+      {error ? <p className="text-[11px] text-red-400">{error}</p> : null}
+      {actionSheet}
+    </>
+  );
   const underBoard = (
     <>
       <BoardMoveHints
@@ -1235,8 +1349,13 @@ export function BattleMapPanel({
     // board-panel: where the panel is given a fixed window (the fight stage,
     // the shared screen, the side panel and the phone) its header and footer
     // stay put and the board takes what is left (world.css, issue 87).
-    <div className="board-panel space-y-2">
-      <div className="flex items-center justify-between">
+    <div className={cn("board-panel space-y-2", compact && "board-panel--compact")}>
+      <div className="flex items-center justify-between gap-2">
+        {compact && !scene && encounter ? (
+          <div className="min-w-0 flex-1">
+            <CompactTurnRow encounter={encounter} round={view.round} faceOf={faceOfEntry} onOpen={() => setOrderOpen(true)} />
+          </div>
+        ) : (
         <h3 className="flex items-center gap-1.5 text-sm font-medium text-stone-200">
           {scene ? (
             <>
@@ -1255,6 +1374,7 @@ export function BattleMapPanel({
             </>
           )}
         </h3>
+        )}
         <div className="flex items-center gap-1">
           {playerTools}
           <button
@@ -1280,7 +1400,21 @@ export function BattleMapPanel({
           disabled={busy}
         />
       ) : null}
-      {gridWith(enlarged ? null : painted)}
+      {compact && !scene && encounter ? (
+        <>
+          <CompactTurnStrip
+            actorName={view.currentTurnName}
+            mine={myTurn}
+            budget={turnBudget}
+            speedLeftFeet={myTurn ? view.budgetLeft * TILE_FEET : null}
+            ac={mySheet?.ac ?? null}
+            hp={mySheet ? { current: mySheet.currentHp, max: effectiveMaxHp(mySheet) } : null}
+            onEndTurn={!targeting ? () => void endTurn() : undefined}
+            endingTurn={endingTurn}
+          />
+        </>
+      ) : null}
+      {gridWith(enlarged ? null : painted, compact)}
       {canDirect && tool === "place" ? (
         <PlaceTokenForm
           kind={placeKind}
@@ -1348,8 +1482,8 @@ export function BattleMapPanel({
           }}
         />
       ) : null}
-      {underBoard}
-      <BoardOrderStrip encounter={encounter} faceOf={faceOfEntry} />
+      {compact ? compactUnder : underBoard}
+      {compact ? null : <BoardOrderStrip encounter={encounter} faceOf={faceOfEntry} />}
 
       <PromptDialog
         open={Boolean(prompt && promptToken)}

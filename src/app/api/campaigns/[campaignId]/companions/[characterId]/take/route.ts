@@ -1,7 +1,8 @@
 import { isErrorResponse, requireStoryAuthority } from "@/lib/campaign-api";
-import { allocateSeq, updateGameSettings } from "@/lib/db/campaigns";
+import { allocateSeq, getFloor, updateGameSettings } from "@/lib/db/campaigns";
 import { activePublicEncounter } from "@/lib/db/encounter-view";
 import { getActiveEncounter, saveEncounter } from "@/lib/db/encounters";
+import { setInitiativeFloor } from "@/lib/dm/encounter-tools";
 import { insertCampaignMessage } from "@/lib/db/messages";
 import { getSheetById, takeOverCompanionSheet } from "@/lib/db/sheets";
 import { publishPersisted, publishWithSeq } from "@/lib/events";
@@ -76,6 +77,14 @@ export async function POST(
     if (changed) {
       saveEncounter(encounter);
       publishPersisted(campaignId, "encounter_updated", { encounter: activePublicEncounter(campaignId) });
+      // On their own turn the floor names who may act: it follows the
+      // character to its new owner, or the composer stays shut for them.
+      const up = encounter.orderReady ? encounter.order[encounter.turnIndex] : undefined;
+      const floor = getFloor(campaignId);
+      const fighting = floor.mode === "initiative" || (floor.mode === "hold" && floor.next.mode === "initiative");
+      if (fighting && up?.kind === "pc" && up.characterId === sheet.id) {
+        setInitiativeFloor(campaign, encounter);
+      }
     }
   }
 

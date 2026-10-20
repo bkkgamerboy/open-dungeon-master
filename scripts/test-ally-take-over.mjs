@@ -82,6 +82,23 @@ await test("mid-fight, the lead takes over an ally: same sheet, theirs, its turn
   assert.deepEqual(own, [lead.id, bruce.id].sort());
 });
 
+await test("taken over on its own turn, the ally's turn and the floor are the lead's at once", async () => {
+  const kramer = ally("Kramer", "warlock");
+  const { getFloor } = await import("../src/lib/db/campaigns.ts");
+  const encounters = await import("../src/lib/db/encounters.ts");
+  // Kramer joins the order and the pointer stands on him, his bot holding the floor.
+  const encounter = getActiveEncounter(world.campaignId);
+  const entry = { kind: "pc", characterId: kramer.id, userId: kramer.userId, name: kramer.name, initiative: 30 };
+  encounters.saveEncounter({ ...encounter, order: [entry, ...encounter.order], turnIndex: 0 });
+  const { setInitiativeFloor } = await import("../src/lib/dm/encounter-tools.ts");
+  setInitiativeFloor(getCampaignById(world.campaignId), getActiveEncounter(world.campaignId));
+  assert.deepEqual(getFloor(world.campaignId).userIds, [kramer.userId]);
+  const { status, json } = await call(TAKE, "POST", world.owner, undefined, { characterId: kramer.id });
+  assert.equal(status, 200, json.error);
+  assert.deepEqual(getFloor(world.campaignId).userIds, [world.owner.id]);
+  assert.equal(getActiveEncounter(world.campaignId).order[0].userId, world.owner.id);
+});
+
 await test("a character that is not an ally cannot be taken", async () => {
   const { status } = await call(TAKE, "POST", world.owner, undefined, { characterId: bruce.id });
   assert.equal(status, 409);
@@ -106,6 +123,9 @@ await test("handing back keeps the sheet and its place in the fight, and the DM 
 });
 
 await test("a player's only character cannot be handed to the DM", async () => {
+  // Kramer goes back first, leaving the lead with Swift alone.
+  const kramer = sheetsDb.listSheetsForUser(world.campaignId, world.owner.id).find((entry) => entry.name === "Kramer");
+  assert.equal((await call(BACK, "POST", world.owner, { sheetId: kramer.id })).status, 200);
   const { status, json } = await call(BACK, "POST", world.owner, { sheetId: lead.id });
   assert.equal(status, 409);
   assert.match(json.error, /only character/);

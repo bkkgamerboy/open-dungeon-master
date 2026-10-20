@@ -36,6 +36,10 @@ export function useBoardCamera(
     onRemoteHandled: () => void;
     // The DM steering everyone else's view is not steered themselves.
     isDirector: boolean;
+    // A phone held upright (useCompactBoard.ts): the view rests close up on
+    // whoever's turn it is, about this many tiles across, instead of on the
+    // whole board, and follows each turn as it starts. Null: the fit.
+    closeUp?: { tiles: number; focus: { x: number; y: number } | null; turnId: string } | null;
   },
 ) {
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -145,6 +149,42 @@ export function useBoardCamera(
   }, [metrics, boardWidth, boardHeight]);
   const clampZoom = useCallback((zoom: number) => clampZoomTo(zoom, minZoomFor(fit())), [fit]);
 
+  // The close-up a phone rests on: the focus tile in the middle at the zoom
+  // that shows `tiles` across, the board's edge kept to the frame's edge so
+  // no bare table shows beside it; the fit when there is nothing to focus
+  // on or the whole board is already that close.
+  const closeTiles = options.closeUp?.tiles ?? 0;
+  const focusX = options.closeUp?.focus?.x ?? null;
+  const focusY = options.closeUp?.focus?.y ?? null;
+  const rest = useCallback((): Camera => {
+    const m = metrics();
+    const whole = fit();
+    if (!m || focusX === null || focusY === null || closeTiles <= 0) {
+      return whole;
+    }
+    const zoom = clampZoom(Math.max(whole.zoom, boardWidth / closeTiles));
+    if (zoom <= whole.zoom + 0.01) {
+      return whole;
+    }
+    const unit = TILE * m.unit * zoom;
+    const wide = boardWidth * unit;
+    const tall = boardHeight * unit;
+    const edge = (size: number, span: number, want: number) =>
+      size <= span ? (span - size) / 2 : Math.min(0, Math.max(span - size, want));
+    return {
+      zoom,
+      x: edge(wide, m.width, m.width / 2 - (focusX + 0.5) * unit),
+      y: edge(tall, m.height, m.height / 2 - (focusY + 0.5) * unit),
+    };
+  }, [metrics, fit, clampZoom, boardWidth, boardHeight, closeTiles, focusX, focusY]);
+  // The latest resting view for the resize observer, which should not be
+  // torn down and rebuilt (and so re-land the view) every time a figure
+  // moves the focus.
+  const restRef = useRef(rest);
+  useEffect(() => {
+    restRef.current = rest;
+  }, [rest]);
+
   const zoomAt = useCallback(
     (nextZoom: number, px: number, py: number) => {
       setEased(false);
@@ -166,8 +206,8 @@ export function useBoardCamera(
   const reset = useCallback(() => {
     setEased(true);
     fittedRef.current = true;
-    setCamera(fit());
-  }, [fit]);
+    setCamera(rest());
+  }, [rest]);
 
   // Centre a tile in the frame at a zoom, easing over --dur-scene.
   const centreOn = useCallback(
@@ -202,14 +242,25 @@ export function useBoardCamera(
     [metrics],
   );
 
-  // Follow the turn: pan to the current token when it is off screen.
+  // Follow the turn: pan to the current token when it is off screen. Close
+  // up on a phone, each new turn brings the view back to rest on whoever is
+  // up, so a player never hunts for the figure that is acting.
   const { followTurn, turnTile } = options;
   const turnKey = turnTile ? `${turnTile.x},${turnTile.y}` : "";
+  const closeTurn = options.closeUp?.focus ? options.closeUp.turnId : "";
+  const lastCloseTurn = useRef("");
   useEffect(() => {
     if (!followTurn || !turnTile) {
       return;
     }
     const frame = requestAnimationFrame(() => {
+      if (closeTurn && closeTurn !== lastCloseTurn.current) {
+        lastCloseTurn.current = closeTurn;
+        setEased(!prefersReducedMotion());
+        fittedRef.current = true;
+        setCamera(rest());
+        return;
+      }
       if (isOffScreen(turnTile, cameraRef.current)) {
         centreOn(turnTile);
       }
@@ -217,7 +268,7 @@ export function useBoardCamera(
     return () => cancelAnimationFrame(frame);
     // turnKey stands in for the tile's identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [followTurn, turnKey, centreOn, isOffScreen]);
+  }, [followTurn, turnKey, closeTurn, centreOn, isOffScreen, rest]);
 
   // The DM's camera: pull once, lock until freed, with an escape hatch
   // after ten seconds so nobody is trapped.
@@ -299,7 +350,7 @@ export function useBoardCamera(
       const before = frameWidth.current;
       frameWidth.current = width;
       if (fittedRef.current) {
-        const next = fit();
+        const next = restRef.current();
         setEased(false);
         setCamera((current) =>
           current.zoom === next.zoom && current.x === next.x && current.y === next.y ? current : next,
@@ -317,6 +368,8 @@ export function useBoardCamera(
     });
     observer.observe(frameEl);
     return () => observer.disconnect();
+    // fit stands in for the board's size: a new board in the same frame
+    // lands again, as it always has.
   }, [frameEl, fit]);
 
   const pointers = useRef(new Map<number, { x: number; y: number }>());

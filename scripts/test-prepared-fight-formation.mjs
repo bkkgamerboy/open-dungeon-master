@@ -16,7 +16,8 @@ const { listSheets } = await import("../src/lib/db/sheets.ts");
 const { getBattleMapForEncounter, listTokens } = await import("../src/lib/db/battle-maps.ts");
 const { insertEncounterTemplate } = await import("../src/lib/db/encounter-templates.ts");
 const { createPreparedMap } = await import("../src/lib/db/prepared-maps.ts");
-const { endEncounter } = await import("../src/lib/db/encounters.ts");
+const encountersDb = await import("../src/lib/db/encounters.ts");
+const { endEncounter } = encountersDb;
 const { getParty, setParty } = await import("../src/lib/db/party.ts");
 const { tileIndex, blocksMove } = await import("../src/lib/battlemap/types.ts");
 
@@ -133,6 +134,15 @@ function next() {
   if (active) endEncounter(active.id, "test");
 }
 
+// Each case starts on a clear table, even when the one before it failed
+// with its fight still open.
+const clear = () => {
+  next();
+  const { getActiveScene } = encountersDb;
+  const scene = getActiveScene(world.campaignId);
+  if (scene) endEncounter(scene.id, "test");
+};
+
 setParty(world.campaignId, { ...getParty(world.campaignId), marchingOrder: [fighter.id, rogue.id, cleric.id, warlock.id] });
 
 const placements = [
@@ -245,6 +255,7 @@ template("Boss waits behind", {
 template("Hall, only the boss placed", { placements: [{ slot: 2, x: 20, y: 6 }], entry: { x: 4, y: 6 } });
 
 await test("a boss placed right at the entry: the formation wins, the healer opens out of reach at the back", async () => {
+  clear();
   healerLast();
   const result = await run({ name: "Boss at the door" });
   assert.equal(result.error, undefined, JSON.stringify(result));
@@ -254,6 +265,7 @@ await test("a boss placed right at the entry: the formation wins, the healer ope
 });
 
 await test("a hidden boss waiting behind the way in: the healer still stands farthest from him", async () => {
+  clear();
   healerLast();
   const result = await run({ name: "Boss waits behind" });
   assert.equal(result.error, undefined, JSON.stringify(result));
@@ -262,6 +274,7 @@ await test("a hidden boss waiting behind the way in: the healer still stands far
 });
 
 await test("enemies the plan did not place stand together, not scattered over the map", async () => {
+  clear();
   healerLast();
   const result = await run({ name: "Hall, only the boss placed" });
   assert.equal(result.error, undefined, JSON.stringify(result));
@@ -272,6 +285,7 @@ await test("enemies the plan did not place stand together, not scattered over th
 });
 
 await test("a saved map with no plan at all: the enemy grouped, the party in formation out of reach", async () => {
+  clear();
   healerLast();
   const result = await run({ name: "Hall, all over the place" });
   assert.equal(result.error, undefined, JSON.stringify(result));
@@ -282,6 +296,7 @@ await test("a saved map with no plan at all: the enemy grouped, the party in for
 });
 
 await test("a story fight from behind at arm's length: the party turns, the healer is not the one beside them", async () => {
+  clear();
   healerLast();
   for (const distanceFeet of [5, 10, 30, undefined]) {
     await world.beginFight([{ monster: "goblin", count: 2 }, { monster: "hobgoblin", count: 2 }], {
@@ -294,17 +309,22 @@ await test("a story fight from behind at arm's length: the party turns, the heal
 });
 
 await test("a story fight with no distance named: the enemy opens grouped in front, not along the far edge", async () => {
+  clear();
   healerLast();
   await world.beginFight([{ monster: "goblin", count: 3 }, { monster: "hobgoblin", count: 1 }]);
   const { foes, pcs, board } = healerSafe("no distance");
+  // A wall can split the line, so "grouped" is within 35 ft of each other
+  // (the far edge band ran the board's whole height), and all of them in
+  // front of the party.
   const spread = Math.max(...foes.flatMap((a) => foes.map((b) => cheb(a, b))));
-  assert.ok(spread <= 4, `the enemy is spread ${spread} tiles${board}`);
+  assert.ok(spread <= 7, `the enemy is spread ${spread} tiles${board}`);
   const nearest = Math.min(...pcs.flatMap((pc) => foes.map((foe) => cheb(pc, foe))));
   assert.ok(nearest >= 4 && nearest <= 9, `the enemy opens ${nearest} tiles off${board}`);
   next();
 });
 
 await test("an exploration scene opened on a saved map stands the party in ranks of two", async () => {
+  clear();
   healerLast();
   const { openSceneOnPreparedMap } = await import("../src/lib/dm/map-library.ts");
   const { getActiveScene } = await import("../src/lib/db/encounters.ts");

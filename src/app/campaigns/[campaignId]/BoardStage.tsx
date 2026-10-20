@@ -408,6 +408,21 @@ export const TokenFigure = memo(function TokenFigure({
             style={{ transition: "stroke var(--dur-beat) var(--ease-snap)" }}
           />
         ) : null}
+        {/* The side, always: a red rim round an enemy, outside the health
+            ring, so an unharmed foe's green never reads as a friend's. */}
+        {token.kind === "enemy" && !dead ? (
+          <circle
+            cx={cx}
+            cy={cy}
+            r={radius + 1.75}
+            fill="none"
+            stroke="#dc2626"
+            strokeWidth={1.5}
+            strokeOpacity={0.95}
+            pointerEvents="none"
+            data-side-ring=""
+          />
+        ) : null}
         {down ? (
           <text
             x={cx}

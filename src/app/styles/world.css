@@ -1590,6 +1590,20 @@ html[data-theme="light"] .ts-below .ts-ghost:hover { background: rgba(255, 252, 
 .board-dock > *,
 .board-dock > .board-panel > * { flex: none; }
 .board-dock > .board-panel > .board-view { flex: 0 1 auto; min-height: 6rem; touch-action: none; }
+/* The compact board (a phone held upright, useCompactBoard.ts): the board
+   takes every pixel the panel has left, rather than its own shape's height
+   with a third of the screen bare under it; the camera rests close up in
+   that window. The turn row, the strip and the sheet keep their height. */
+.side-panel-body:has(> .motion-tab > .board-dock > .board-panel--compact) > .motion-tab,
+.board-dock:has(> .board-panel--compact),
+.board-dock > .board-panel--compact { flex: 1 1 auto; }
+.board-dock > .board-panel--compact > .board-view { flex: 1 1 0; min-height: 14rem; }
+/* The actions rise into place under the board as a sheet does. */
+@keyframes board-sheet-up { from { transform: translateY(1.5rem); opacity: 0; } to { transform: none; opacity: 1; } }
+.board-compact-sheet { animation: board-sheet-up var(--dur-quick) var(--ease-settle) both; }
+@media (prefers-reduced-motion: reduce) { .board-compact-sheet { animation: none; } }
+html[data-effects="low"] .board-compact-sheet { animation: none; }
+
 /* In any fixed window the DM's tools keep to one line and scroll sideways,
    so a narrow window never trades rows of buttons for board. */
 :is(.cine-board-frame, .board-fill, .board-dock) .board-tools {
