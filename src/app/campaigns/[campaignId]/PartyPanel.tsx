@@ -5,7 +5,7 @@ import { PartyPackPanel } from "@/app/campaigns/[campaignId]/PartyPackPanel";
 import type { PlaceRef } from "@/lib/dm/pack-logic";
 import type { PartyState } from "@/lib/dm/party-logic";
 import { fieldedOf } from "@/lib/player-characters";
-import { Bot, Check, Crown, Heart, ImagePlus, PawPrint, Save, Sparkles, UserPlus } from "lucide-react";
+import { Bot, Check, Crown, Heart, ImagePlus, PawPrint, Save, Sparkles, Swords, UserPlus } from "lucide-react";
 import { describeExhaustion } from "@/lib/dm/condition-logic";
 import { namesLookup } from "@/lib/battlemap/condition-notes";
 import { conditionIconKey } from "@/lib/battlemap/condition-glyphs";
@@ -225,6 +225,114 @@ function HandToDmButton({
         className="w-full justify-center"
       >
         {state === "sending" ? null : <Bot className="size-3.5" />} Hand to the DM
+      </KitButton>
+      {error ? (
+        <p role="alert" className="motion-shake text-[11px] text-red-400">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// "Play this ally yourself": an ally the DM plays becomes one of the lead's
+// own characters, in fights and in the story (companions/[id]/take). Its
+// sheet, progress and place in a fight in progress stay; a table that fields
+// one character each starts fielding them all, so the ally's Hand comes up
+// on its turn. Asked once before it happens, since the DM stops speaking
+// for the ally from then on.
+function TakeOverAllyButton({ campaignId, sheet }: { campaignId: string; sheet: CharacterSheet }) {
+  const [state, setState] = useState<"idle" | "asking" | "sending">("idle");
+  const [error, setError] = useState("");
+  async function take() {
+    setState("sending");
+    setError("");
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}/companions/${sheet.id}/take`, { method: "POST" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setError(data.error || `Could not take over ${sheet.name}.`);
+      }
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setState("idle");
+    }
+  }
+  return (
+    <div className="reveal mt-2 space-y-1">
+      {state === "asking" ? (
+        <div className="reveal space-y-1.5 rounded-md border border-amber-700/40 bg-amber-950/20 p-2 text-[11px] leading-4 text-stone-300">
+          <p>
+            You play {sheet.name} from now on: their turns in a fight, and what they say and do in the story. The DM
+            stops playing them. You can hand them back any time.
+          </p>
+          <div className="flex gap-1.5">
+            <KitButton tone="primary" onClick={take} className="flex-1 justify-center">
+              Play {sheet.name}
+            </KitButton>
+            <KitButton onClick={() => setState("idle")} className="flex-1 justify-center">
+              Not now
+            </KitButton>
+          </div>
+        </div>
+      ) : (
+        <KitButton
+          tone="secondary"
+          onClick={() => setState("asking")}
+          disabled={state === "sending"}
+          busy={state === "sending"}
+          title={`Control ${sheet.name} yourself: their sheet and progress stay`}
+          className="w-full justify-center"
+        >
+          {state === "sending" ? null : <Swords className="size-3.5" />} Play this ally yourself
+        </KitButton>
+      )}
+      {error ? (
+        <p role="alert" className="motion-shake text-[11px] text-red-400">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// The way back: one of the player's own characters, an ally they took over,
+// travels on as an ally the DM plays (companions/hand-back). Only while they
+// keep another character to play; the server holds the companion setting
+// and cap, and says so in its refusal.
+function HandBackButton({ campaignId, sheet }: { campaignId: string; sheet: CharacterSheet }) {
+  const [state, setState] = useState<"idle" | "sending">("idle");
+  const [error, setError] = useState("");
+  async function handBack() {
+    setState("sending");
+    setError("");
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}/companions/hand-back`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheetId: sheet.id }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setError(data.error || `Could not hand ${sheet.name} back to the DM.`);
+      }
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setState("idle");
+    }
+  }
+  return (
+    <div className="reveal mt-2 space-y-1">
+      <KitButton
+        onClick={handBack}
+        disabled={state === "sending"}
+        busy={state === "sending"}
+        title={`${sheet.name} travels on as an ally the DM plays; the sheet and progress stay`}
+        className="w-full justify-center"
+      >
+        {state === "sending" ? null : <Bot className="size-3.5" />} Hand {sheet.name} back to the DM
       </KitButton>
       {error ? (
         <p role="alert" className="motion-shake text-[11px] text-red-400">
@@ -907,6 +1015,14 @@ export function PartyPanel({
 
             {campaignId && steersStory && !sheet.isCompanion && sheet.libraryRole === "companion" ? (
               <HandToDmButton campaignId={campaignId} sheet={sheet} blocked={companionBlock} onOpenSettings={onOpenSettings} />
+            ) : null}
+
+            {campaignId && steersStory && !humanDmTable && sheet.isCompanion && sheet.companionKind !== "guest" && !sheet.summon ? (
+              <TakeOverAllyButton campaignId={campaignId} sheet={sheet} />
+            ) : null}
+
+            {campaignId && mine && !sheet.isCompanion && myOwn.length > 1 && (sheet.personality || sheet.libraryRole === "companion") ? (
+              <HandBackButton campaignId={campaignId} sheet={sheet} />
             ) : null}
 
             {setsPortrait ? (

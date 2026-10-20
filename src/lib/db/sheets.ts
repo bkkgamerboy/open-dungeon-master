@@ -226,6 +226,21 @@ export function adoptSheetAsCompanion(
   return getSheetById(sheetId);
 }
 
+// The reverse: an ally the DM played becomes a character its new owner plays
+// (the Party panel's "Play this ally yourself"). Hit points, experience,
+// gear and conditions stay as play left them, and the id stays, so an
+// initiative slot or a token keeps pointing at it; only the owner and the
+// companion mark change. The personality brief stays on the row for the
+// day it is handed back.
+export function takeOverCompanionSheet(sheetId: string, userId: string): CharacterSheet | null {
+  getDatabase()
+    .prepare(
+      `UPDATE character_sheets SET user_id = ?, is_companion = 0, companion_kind = NULL, updated_at = ? WHERE id = ? AND is_companion = 1`,
+    )
+    .run(userId, nowIso(), sheetId);
+  return getSheetById(sheetId);
+}
+
 // Ties a campaign copy to the library character it is saved as. A companion
 // built before companions kept their link, or one built from scratch, is
 // linked the first time whoever runs the story saves it, so the campaign's

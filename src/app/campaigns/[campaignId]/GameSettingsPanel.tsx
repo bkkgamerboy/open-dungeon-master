@@ -848,6 +848,30 @@ export function GameSettingsPanel({
                 : "Standing is tracked per character; romance is off."}
           </span>
         </div>
+        {/* Characters per player (docs/vtt-parity-implementation-plan.md
+            11.3), changeable once the game has started: a solo table that
+            takes over its allies fields them all, and a player can switch
+            back to one at a time. Taking over an ally switches it to all
+            fielded by itself (companions/[id]/take). */}
+        <div data-settings-row="characters" className="reveal flex flex-wrap items-center gap-2">
+          <span className="pk-rowlabel">Characters</span>
+          <Tooltip content="How many characters each player runs. One each: the usual table. Several, one at a time: a player builds more than one and picks which is in play; the others wait out fights. Several, all fielded: every character a player owns is in play at once, each with its own Hand on its turn, for a solo table running a whole party.">
+            <span className="inline-flex min-w-0 max-w-full">
+              <Select<GameSettings["multiCharacter"]>
+                size="sm"
+                label="Characters per player"
+                value={settings.multiCharacter}
+                onChange={(multiCharacter) => patch({ multiCharacter })}
+                options={[
+                  { value: "off", label: "one character each" },
+                  { value: "one_active", label: "several, one at a time" },
+                  { value: "all_active", label: "several, all fielded" },
+                ]}
+                className={selectClass}
+              />
+            </span>
+          </Tooltip>
+        </div>
         {/* At a table a person runs, Auto already allows the lasting allies
             the DM plays by hand, so the row stays out of the way; it shows
             when an Off or guests-only setting carried over from an AI table
