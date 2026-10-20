@@ -50,6 +50,14 @@ function dmStatusPhrase(status: DmStatus, turnKey: string): string {
   return pool[hashString(turnKey + status) % pool.length];
 }
 
+// Puts the transcript on its newest line at once. A hidden Table tab has no
+// size to scroll; the transcript lands when the tab comes back.
+function toFoot(box: HTMLElement | null) {
+  if (box && box.clientHeight > 0) {
+    box.scrollTop = box.scrollHeight;
+  }
+}
+
 // The DM's passage as it streams in, or the flavour line while the DM
 // works. The only part of the transcript that subscribes to the draft
 // store, so a narration flush repaints this and nothing above it. The
@@ -154,9 +162,17 @@ export function MessageList({
   onSelectVariant?: (message: CampaignMessage, index: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Whether the reader is at the foot of the story, so it follows them.
   const nearBottomRef = useRef(true);
   const scrollPendingRef = useRef(false);
+  // The last place the reader stood, for the scroll handler to tell a
+  // scroll up (the reader leaving the foot) from the follow's own scroll
+  // down, and to put them back there when the Table tab comes back.
+  const lastTopRef = useRef(0);
+  // Whether the story has been landed on its newest line yet.
+  const landedRef = useRef(false);
   const statusPhrase = dmStatusPhrase(dmStatus, messages[messages.length - 1]?.id ?? "");
   const rollsById = useMemo(() => new Map(rolls.map((roll) => [roll.id, roll])), [rolls]);
   const sheetsById = useMemo(
@@ -313,8 +329,53 @@ export function MessageList({
   const newest = messages.length ? messages[messages.length - 1] : null;
   const newestKey = newest ? `${newest.id}:${newest.content.length}` : "";
   useEffect(() => {
+    // The story's first arrival lands on its newest line at once: a smooth
+    // glide down a long story is overtaken by the pictures loading under it.
+    if (!landedRef.current && messages.length) {
+      landedRef.current = true;
+      toFoot(containerRef.current);
+      return;
+    }
     follow("smooth");
   }, [messages.length, newestKey, dmStatus, follow]);
+
+  // The story's foot moves after it lands: scene pictures load late (they
+  // carry no height until they do), cards and fonts settle, and a hidden
+  // Table tab has no size at all. While the reader is at the foot it is kept
+  // there; a Table tab coming back from another puts the reader at the foot,
+  // or where they were reading if they had scrolled up (the table that came
+  // back at the top of a long story).
+  useEffect(() => {
+    const box = containerRef.current;
+    const content = contentRef.current;
+    if (!box || !content || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    let shown = box.clientHeight > 0;
+    const observer = new ResizeObserver(() => {
+      if (box.clientHeight === 0) {
+        shown = false;
+        return;
+      }
+      if (!shown) {
+        shown = true;
+        if (nearBottomRef.current) {
+          toFoot(box);
+        } else {
+          box.scrollTop = lastTopRef.current;
+        }
+        lastTopRef.current = box.scrollTop;
+        return;
+      }
+      if (nearBottomRef.current) {
+        toFoot(box);
+        lastTopRef.current = box.scrollTop;
+      }
+    });
+    observer.observe(box);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   // The streaming passage sits at the bottom, unless a player answered it
   // mid-stream: then it already holds a seq before that reply (issue 68) and
@@ -326,16 +387,27 @@ export function MessageList({
     <DmDraftBubble key="dm-draft" dmStatus={dmStatus} statusPhrase={statusPhrase} follow={follow} />
   );
 
+  // Only the reader scrolling up takes the story off its foot. The follow's
+  // own glide down passes through places far from the foot, and reading
+  // those as the reader leaving it stopped the follow halfway. A hidden tab
+  // (no size) says nothing about where the reader is.
   function handleScroll() {
     const el = containerRef.current;
-    if (el) {
-      nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (!el || el.clientHeight === 0) {
+      return;
     }
+    const top = el.scrollTop;
+    if (el.scrollHeight - top - el.clientHeight < 120) {
+      nearBottomRef.current = true;
+    } else if (top < lastTopRef.current - 1) {
+      nearBottomRef.current = false;
+    }
+    lastTopRef.current = top;
   }
 
   return (
     <div ref={containerRef} onScroll={handleScroll} className="session-transcript flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl space-y-8 px-4 py-6 sm:px-6">
+      <div ref={contentRef} className="mx-auto max-w-3xl space-y-8 px-4 py-6 sm:px-6">
       {messages.flatMap((message, index) => [
         ...(index === draftAt ? [draftBubble] : []),
         <MessageItem

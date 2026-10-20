@@ -28,7 +28,7 @@ const campaigns = await import("../../src/lib/db/campaigns.ts");
 const messages = await import("../../src/lib/db/messages.ts");
 const { setUserAdmin, setUserPassword } = await import("../../src/lib/db/users.ts");
 const { hashPassword } = await import("../../src/lib/auth.ts");
-const { LEAD_NOTE_PREFIX } = await import("../../src/lib/campaign-types.ts");
+const { DM_HALTED_PREFIX, LEAD_NOTE_PREFIX } = await import("../../src/lib/campaign-types.ts");
 
 const tavi = world.addHero({
   user: world.owner,
@@ -386,6 +386,56 @@ for (const viewport of ["desktop", "laptop", "phone"]) {
   closing[viewport] = table.id;
 }
 
+// A long story out of combat, ending on the notice a halted DM turn leaves:
+// the table must open on that last line, and come back to it after another
+// tab or a reload (table-scroll).
+const LONG_TITLE = "Long Road";
+const longRoad = campaigns.createCampaign(world.owner.id, {
+  title: LONG_TITLE,
+  description: "Weeks on the road, every day of it told.",
+  theme: "high-fantasy",
+  maxPlayers: 6,
+  startingLevel: 3,
+  difficulty: "normal",
+  gameSettings: { ttsEnabled: false },
+});
+campaigns.setCampaignStatus(longRoad.id, "active");
+const swift = sheets.createSheet(longRoad.id, world.owner.id, 3, heroInput({ name: "Swift Fingers", class: "rogue", level: 3 }));
+const longSay = (content, extra = {}) =>
+  messages.insertCampaignMessage({ campaignId: longRoad.id, seq: campaigns.allocateSeq(longRoad.id), ...extra, content });
+for (let index = 1; index <= 70; index += 1) {
+  if (index % 4 === 0) {
+    longSay(`Road line ${index}: Swift Fingers counts the coins twice and asks the carter about the next town.`, {
+      authorType: "player",
+      userId: world.owner.id,
+      characterId: swift.id,
+    });
+  } else {
+    const passage = longSay(
+      `Road passage ${index}. The carts creak over the ruts while crows argue on the fence posts. ` +
+        "A farmer waves from a field of barley, and the smell of woodsmoke drifts down from a cottage on the hill." +
+        (index % 3 === 0 ? "\n\nBy the milestone a pedlar has spread his wares on a blanket: pots, ribbons, a dented lantern and a jar of honey." : ""),
+      { authorType: "dm", speech: [] },
+    );
+    // Scene pictures, as a table with illustrations has: they load after the
+    // transcript first lands and push its foot down.
+    if (index % 5 === 0) {
+      messages.setMessageGeneratedImage(passage.id, {
+        id: `road-${index}`,
+        url: "/assets/ui/door/high-fantasy.webp",
+        prompt: "A cart on a country road",
+        mode: "scene",
+        aspect: "landscape",
+        width: 680,
+        height: 768,
+      });
+    }
+  }
+}
+const LONG_LAST = "What is the standard rate";
+longSay(LONG_LAST, { authorType: "player", userId: world.owner.id, characterId: swift.id });
+longSay(`${DM_HALTED_PREFIX}Backend request failed.`, { authorType: "system" });
+
 for (const user of [world.owner, player, ...tourAccounts]) {
   setUserPassword(user.id, await hashPassword(PASSWORD), false);
 }
@@ -424,9 +474,12 @@ const ids = {
   prepSourceId: prepSource.id,
   prepSourceTitle: PREP_SOURCE_TITLE,
   closing,
+  longId: longRoad.id,
+  longLast: LONG_LAST,
   // Every campaign a scenario opens, by id, for the app's home tiles.
   titles: {
     [world.campaignId]: TITLE,
+    [longRoad.id]: LONG_TITLE,
     [lobby.id]: LOBBY_TITLE,
     [quiet.id]: QUIET_TITLE,
     [prepared.id]: PREP_TITLE,
