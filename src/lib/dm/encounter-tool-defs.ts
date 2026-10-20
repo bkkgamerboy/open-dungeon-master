@@ -68,7 +68,7 @@ export const startEncounterTool: ToolDef = {
           type: "integer",
           minimum: 5,
           description:
-            "How far the nearest enemy stands from the party as the fight opens, in feet, whenever the story has already said: 5 for a foe at arm's length, 10 for one two paces off, 30 across a room. The battle map places them there. Omit it and the sides open across the field from each other.",
+            "How far the nearest enemy stands from the party as the fight opens, in feet, whenever the story has already said: 5 for a foe at arm's length, 10 for one two paces off, 30 across a room. The battle map places them there. Omit it and they open about 40 ft off, grouped in front of the party (closer on a small map).",
         },
         lair: {
           type: "boolean",
@@ -78,7 +78,7 @@ export const startEncounterTool: ToolDef = {
           type: "string",
           enum: ["ahead", "behind"],
           description:
-            "Where the enemy comes from against the party's travel formation (GAME STATE): 'ahead' (the default) puts the front of the formation nearest them, 'behind' the rear. The formation only places the party; it grants no surprise or bonus.",
+            "Where the enemy comes from against the party's travel formation (GAME STATE): 'ahead' (the default) or 'behind'. Either way the party turns to face them, the front of the formation nearest them; 'behind' is for the story to tell. The formation only places the party; it grants no surprise or bonus (use ambush or surprised for that).",
         },
       },
       required: ["enemies"],

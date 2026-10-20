@@ -1,6 +1,7 @@
 import { isOnePageDungeon, parseOnePageDungeon } from "@/lib/battlemap/watabou";
 import { getParty } from "@/lib/db/party";
 import { placeByFormation } from "@/lib/dm/formation-logic";
+import { facingToward, standInRanks } from "@/lib/battlemap/party-ranks";
 import type { Campaign } from "@/lib/db/campaigns";
 import { createEncounter, getActiveBoard, getActiveScene } from "@/lib/db/encounters";
 import {
@@ -529,8 +530,23 @@ export function openSceneOnPreparedMap(
   });
   const spawns = partySpawnTiles(prepared.terrain, prepared.width, prepared.height, sheets.length);
   const fallback: XY = spawns[0] ?? { x: 1, y: 1 };
-  // In the order of the party's travel formation (issue 230).
-  const { spots } = placeByFormation(sheets, spawns, [], getParty(campaign.id).marchingOrder);
+  // In the order of the party's travel formation (issue 230), two abreast
+  // with the front rank looking into the map, as a fight opens
+  // (party-ranks.ts); the first open tile from the map's edge is where they
+  // come in.
+  const middle = { x: (prepared.width - 1) / 2, y: (prepared.height - 1) / 2 };
+  const ranks = spawns.length
+    ? standInRanks({
+        terrain: prepared.terrain,
+        width: prepared.width,
+        height: prepared.height,
+        anchor: fallback,
+        facing: facingToward(fallback, middle),
+        count: sheets.length,
+        taken: new Set(prepared.props.map((prop) => tileIndex(prepared.width, prop.x, prop.y))),
+      })
+    : spawns;
+  const { spots } = placeByFormation(sheets, ranks, [], getParty(campaign.id).marchingOrder);
   placeTokens(
     map.id,
     campaign.id,

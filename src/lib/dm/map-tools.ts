@@ -121,8 +121,8 @@ export function createBattleMapForEncounter(
     lights: generated.lights,
     seed: fnv1a(encounter.id),
   });
-  // The party stands by its travel formation: the front of it nearest the
-  // enemy, or the rear when they came from behind (formation-logic.ts).
+  // The party stands by its travel formation, the front of it nearest the
+  // enemy whichever way they came from (formation-logic.ts).
   const formation = placeByFormation(sheets, generated.pcSpawns, generated.enemySpawns, getParty(campaign.id).marchingOrder, from);
   placeTokens(map.id, campaign.id, [
     ...sheets.map((sheet) => ({

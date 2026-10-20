@@ -1,4 +1,4 @@
-import { standInRanks } from "@/lib/battlemap/party-ranks";
+import { DEFAULT_OPENING_TILES, SAFE_OPENING_TILES, standInRanks } from "@/lib/battlemap/party-ranks";
 import {
   TERRAIN,
   blocksMove,
@@ -452,10 +452,46 @@ export function generateBattleMap(input: GenerateInput): GeneratedMap {
   const enemyRange: [number, number] = flip ? [1, 1 + band] : [width - 1 - band, width - 1];
   const toward: 1 | -1 = flip ? -1 : 1;
   let pcSpawns = clusterParty(tiles, width, height, pickSpawns(tiles, width, height, rng, pcRange[0], pcRange[1], input.pcCount, taken), taken, toward);
-  const pickEnemies = (party: XY[]) =>
-    input.enemyDistanceTiles && party.length
-      ? pickSpawnsAtDistance(tiles, width, height, rng, party, Math.max(1, Math.round(input.enemyDistanceTiles)), input.enemyCount, taken, toward)
-      : pickSpawns(tiles, width, height, rng, enemyRange[0], enemyRange[1], input.enemyCount, taken);
+  const pickEnemies = (party: XY[]) => {
+    if (input.enemyDistanceTiles && party.length) {
+      return pickSpawnsAtDistance(tiles, width, height, rng, party, Math.max(1, Math.round(input.enemyDistanceTiles)), input.enemyCount, taken, toward);
+    }
+    // No distance named: the far band is still drawn, so the seed spends its
+    // numbers as it always has and its lights fall where they did, but the
+    // enemy opens grouped in front of the party, 40 ft off (less on a small
+    // map), not strung out along the far edge. Where the ground ahead cannot
+    // hold them all, the band stands.
+    const spread = pickSpawns(tiles, width, height, rng, enemyRange[0], enemyRange[1], input.enemyCount, taken);
+    if (!party.length || !input.enemyCount) {
+      return spread;
+    }
+    for (const spot of spread) {
+      taken.delete(tileIndex(width, spot.x, spot.y));
+    }
+    const front = toward > 0 ? Math.max(...party.map((spot) => spot.x)) : Math.min(...party.map((spot) => spot.x));
+    const reach = Math.max(SAFE_OPENING_TILES, Math.min(DEFAULT_OPENING_TILES, Math.floor((width - 2) / 2)));
+    const grouped = pickSpawnsAtDistance(
+      tiles,
+      width,
+      height,
+      mulberry32((input.seed ^ 0x9e3779b9) >>> 0),
+      party,
+      reach,
+      input.enemyCount,
+      taken,
+      toward,
+    );
+    if (grouped.length >= input.enemyCount && grouped.every((spot) => (spot.x - front) * toward > 0)) {
+      return grouped;
+    }
+    for (const spot of grouped) {
+      taken.delete(tileIndex(width, spot.x, spot.y));
+    }
+    for (const spot of spread) {
+      taken.add(tileIndex(width, spot.x, spot.y));
+    }
+    return spread;
+  };
   let enemySpawns = pickEnemies(pcSpawns);
 
   // Dense generation can starve an edge band; open the center as a fallback.

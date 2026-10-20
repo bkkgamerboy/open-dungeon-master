@@ -169,7 +169,7 @@ await test("start_encounter stands the party by the formation and says so", asyn
   await world.invoke("end_encounter", { reason: "test" });
 });
 
-await test("from behind, the rear of the formation stands nearest the enemy", () => {
+await test("from behind, the party turns to face them: the front still stands nearest, the rear farthest", () => {
   const sheets = [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }];
   const party = [{ x: 1, y: 5 }, { x: 2, y: 5 }, { x: 3, y: 5 }];
   const enemies = [{ x: 9, y: 5 }];
@@ -177,8 +177,9 @@ await test("from behind, the rear of the formation stands nearest the enemy", ()
   assert.deepEqual(ahead.spots.get("a"), { x: 3, y: 5 });
   assert.deepEqual(ahead.spots.get("c"), { x: 1, y: 5 });
   const behind = logic.placeByFormation(sheets, party, enemies, ["a", "b", "c"], "behind");
-  assert.deepEqual(behind.spots.get("c"), { x: 3, y: 5 });
-  assert.match(behind.line, /rear of it nearest the enemy/);
+  assert.deepEqual(behind.spots.get("a"), { x: 3, y: 5 });
+  assert.deepEqual(behind.spots.get("c"), { x: 1, y: 5 }, "the rear of the formation never opens nearest the enemy");
+  assert.match(behind.line, /turned to face the enemy, who came from behind/);
   const none = logic.placeByFormation(sheets, party, enemies, [], "ahead");
   assert.match(none.line, /No travel formation is set/);
 });

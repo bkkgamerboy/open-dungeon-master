@@ -216,11 +216,13 @@ export function describeFormation(
 type XY = { x: number; y: number };
 
 // Starting tiles for the party, by the formation: the front of it on the
-// tiles nearest the enemy when they come from ahead, the rear when they come
-// from behind. With no enemy on the board (a scene) the formation runs along
-// the tiles in the order the map gave them. Characters not in the formation
-// take the tiles after it. Returns each character's tile and the sentence the
-// tool result says about it.
+// tiles nearest the enemy, whichever way the enemy came from. An enemy from
+// behind is met by a party that turns to face it, so the healer the party
+// put at the back is never the one left standing next to them; "behind"
+// changes only what the story says. With no enemy on the board (a scene)
+// the formation runs along the tiles in the order the map gave them.
+// Characters not in the formation take the tiles after it. Returns each
+// character's tile and the sentence the tool result says about it.
 export function placeByFormation(
   sheets: Array<{ id: string; name: string }>,
   partySpawns: XY[],
@@ -235,7 +237,7 @@ export function placeByFormation(
   const tiles = enemySpawns.length
     ? partySpawns
         .map((spot, index) => ({ spot, index, distance: nearest(spot) }))
-        .sort((a, b) => (from === "behind" ? b.distance - a.distance : a.distance - b.distance) || a.index - b.index)
+        .sort((a, b) => a.distance - b.distance || a.index - b.index)
         .map((entry) => entry.spot)
     : partySpawns;
   const fallback = partySpawns[0] ?? { x: 1, y: 1 };
@@ -249,7 +251,7 @@ export function placeByFormation(
   }
   const where = enemySpawns.length
     ? from === "behind"
-      ? "the rear of it nearest the enemy, who came from behind"
+      ? "turned to face the enemy, who came from behind, the front of it nearest them"
       : "the front of it nearest the enemy"
     : "in its order";
   return {

@@ -20,7 +20,14 @@ import { publishBattleMapUpdate } from "@/lib/dm/map-tools";
 import { publishEncounter } from "@/lib/dm/enemy-damage";
 import type { MapTheme } from "@/lib/battlemap/generate";
 import { tileIndex, type AmbientLight, type XY } from "@/lib/battlemap/types";
-import { centerOf, chooseFront, facingToward, standInRanks } from "@/lib/battlemap/party-ranks";
+import {
+  DEFAULT_OPENING_TILES,
+  SAFE_OPENING_TILES,
+  centerOf,
+  chooseFront,
+  clusterAround,
+  standInRanks,
+} from "@/lib/battlemap/party-ranks";
 import { placeByFormation } from "@/lib/dm/formation-logic";
 import { getParty } from "@/lib/db/party";
 import { describeExtras, expandRoster, matchSlots } from "@/lib/dm/encounter-template-logic";
@@ -65,9 +72,57 @@ export function applyTemplateMap(campaign: Campaign, template: EncounterTemplate
   return "error" in applied ? applied.error : null;
 }
 
+// The enemy a prepared fight did not place stands together as one force:
+// beside the ones it did place, or with none placed, a stride from the way
+// in (at the distance the story asked, else 40 ft), or failing both around
+// the first of them. On a saved map they otherwise kept the tiles a
+// generated map had given them, scattered across ground drawn for another
+// board.
+function groupUnplacedEnemies(map: BattleMap, placedIds: Set<string>, entry: XY | null, distanceTiles?: number) {
+  const tokens = listTokens(map.id);
+  const enemy = tokens.filter((token) => token.kind === "enemy");
+  const loose = enemy.filter((token) => !placedIds.has(token.refId));
+  if (!loose.length) {
+    return;
+  }
+  const placed = enemy.filter((token) => placedIds.has(token.refId));
+  const taken = occupiedTiles(
+    map,
+    tokens.filter((token) => !loose.includes(token)),
+    null,
+  );
+  const want = Math.max(SAFE_OPENING_TILES, Math.round(distanceTiles ?? DEFAULT_OPENING_TILES));
+  const around = placed.length
+    ? (centerOf(placed) as XY)
+    : entry
+      ? chooseFront({ terrain: map.terrain, width: map.width, height: map.height, enemies: [entry], near: entry, distance: want, taken })
+      : { x: loose[0].x, y: loose[0].y };
+  const spots = clusterAround({
+    terrain: map.terrain,
+    width: map.width,
+    height: map.height,
+    around: { x: Math.round(around.x), y: Math.round(around.y) },
+    count: loose.length,
+    taken,
+    keepAway: entry ? [entry] : [],
+    apart: entry ? SAFE_OPENING_TILES : 0,
+  });
+  loose.forEach((token, index) => {
+    const spot = spots[index];
+    if (spot) {
+      placeToken(token.id, spot.x, spot.y);
+    }
+  });
+}
+
 // Stands the party on the board as a fight opens, after the enemy is in
-// place: front rank toward the enemy, ranks of two behind it, the travel
+// place: two abreast, the front rank toward the enemy and the travel
 // formation deciding who stands where (party-ranks.ts, formation-logic.ts).
+// The formation wins over any spot drawn on the map: the block is turned to
+// keep its rear farthest from every enemy, hidden ones too, and the healer
+// the party put at the back takes the tile farthest from all of them, so an
+// entry point beside the boss, or a boss waiting behind, never stands her
+// next to it.
 function standPartyFacingEnemy(campaign: Campaign, map: BattleMap, entry: XY | null, distanceFeet?: number) {
   const tokens = listTokens(map.id);
   const party = tokens.filter((token) => token.kind === "pc");
@@ -89,6 +144,7 @@ function standPartyFacingEnemy(campaign: Campaign, map: BattleMap, entry: XY | n
         Math.hypot(token.x - middle.x, token.y - middle.y) < Math.hypot(best.x - middle.x, best.y - middle.y) ? token : best,
       )
     : party[0];
+  const distance = distanceFeet ? distanceFeet / 5 : undefined;
   const front = chooseFront({
     terrain: map.terrain,
     width: map.width,
@@ -96,7 +152,7 @@ function standPartyFacingEnemy(campaign: Campaign, map: BattleMap, entry: XY | n
     enemies: foes,
     near: { x: near.x, y: near.y },
     entry,
-    distance: distanceFeet ? distanceFeet / 5 : undefined,
+    distance,
     taken,
   });
   const slots = standInRanks({
@@ -104,15 +160,19 @@ function standPartyFacingEnemy(campaign: Campaign, map: BattleMap, entry: XY | n
     width: map.width,
     height: map.height,
     anchor: front,
-    facing: middle ? facingToward(front, middle) : { dx: 1, dy: 0 },
+    toward: middle,
     count: party.length,
     taken,
+    threats: foes,
     keepClear: foes,
+    frontMayTouch: distance !== undefined && distance <= 1,
   });
+  // Front of the formation on the tiles nearest any enemy, the rear on the
+  // farthest: the block's shape cannot put the healer in reach.
   const { spots } = placeByFormation(
     party.map((token) => ({ id: token.refId, name: token.name })),
     slots,
-    [],
+    foes,
     getParty(campaign.id).marchingOrder,
   );
   for (const token of party) {
@@ -177,12 +237,23 @@ export function applyTemplateExtras(
           setTokenHidden(token.id, true);
         }
       }
-      // The party by its travel formation, two abreast facing the enemy:
-      // at the entry point when the fight has one, else near where it
-      // stands, never opening in reach; it faces the enemy the party can see, so an
-      // ambusher set hidden does not turn it round. Piling everyone onto the entry tile
-      // in roster order put whoever was made first nearest the door.
-      if (extras.entry || onSavedMap) {
+      // The enemy the plan did not place stands together, then the party by
+      // its travel formation, two abreast facing the enemy: near the entry
+      // point when the fight has one, else near where it stands, never
+      // opening in reach of anyone, an ambusher included. Piling everyone
+      // onto the entry tile in roster order put whoever was made first
+      // nearest the door, and an enemy placed by the plan could land beside
+      // a party the generator had already stood.
+      if (onSavedMap) {
+        const placedIds = new Set(
+          extras.placements.flatMap((placement) => {
+            const enemy = matched.get(placement.slot);
+            return enemy ? [enemy.id] : [];
+          }),
+        );
+        groupUnplacedEnemies(map, placedIds, extras.entry, options.distanceFeet ? options.distanceFeet / 5 : undefined);
+      }
+      if (extras.entry || onSavedMap || extras.placements.length) {
         standPartyFacingEnemy(campaign, map, extras.entry, options.distanceFeet);
       }
       publishBattleMapUpdate(campaign.id);

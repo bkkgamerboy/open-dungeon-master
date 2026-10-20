@@ -197,8 +197,9 @@ const startArgsSchema = z.object({
   }, z.number().optional()),
   lair: z.boolean().optional(),
   // Where the enemy comes from against the party's travel formation (issue
-  // 230): ahead puts its front nearest them, behind its rear. Anything else
-  // a weak caller sends reads as ahead.
+  // 230). The party turns to face them either way, its front nearest them;
+  // behind changes only what the story says. Anything else a weak caller
+  // sends reads as ahead.
   from: z.preprocess((value) => (value === "behind" || value === "ahead" ? value : undefined), z.enum(["ahead", "behind"]).optional()),
 });
 
