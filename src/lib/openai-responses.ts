@@ -215,7 +215,10 @@ export type ResponsesReply =
   // serviceTier: the tier the backend says ran the call ("priority",
   // "default"), where it says one (issue 255).
   | { message: UpstreamChatMessage; finishReason?: string; usage?: TokenUsage; serviceTier?: string }
-  | { failure: string };
+  // code: the backend's own name for the failure (OpenAI's error.code:
+  // "server_error", "rate_limit_exceeded", "invalid_prompt"...), when it
+  // gave one, so the caller can tell a blip worth one retry from a refusal.
+  | { failure: string; code?: string };
 
 const cutByOutputCap = (response: { status?: unknown; incomplete_details?: { reason?: unknown } | null } | null | undefined) =>
   response?.status === "incomplete" && response?.incomplete_details?.reason === "max_output_tokens";
@@ -245,6 +248,7 @@ export async function readResponsesReply(
     const doneItems: Array<[number, unknown]> = [];
     let output: unknown = null;
     let failure = "";
+    let failureCode = "";
     let finishReason = "";
     let usage: TokenUsage | null = null;
     let serviceTier = "";
@@ -264,10 +268,11 @@ export async function readResponsesReply(
         item?: unknown;
         output_index?: unknown;
         message?: unknown;
-        error?: { message?: unknown } | null;
+        code?: unknown;
+        error?: { message?: unknown; code?: unknown } | null;
         response?: {
           output?: unknown;
-          error?: { message?: unknown } | null;
+          error?: { message?: unknown; code?: unknown } | null;
           status?: unknown;
           incomplete_details?: { reason?: unknown } | null;
           service_tier?: unknown;
@@ -307,19 +312,24 @@ export async function readResponsesReply(
           failure =
             (typeof event.response?.error?.message === "string" && event.response.error.message) ||
             "The backend reported a failed response.";
+          failureCode = typeof event.response?.error?.code === "string" ? event.response.error.code : "";
           break;
         case "error":
           failure =
             (typeof event.message === "string" && event.message) ||
             (typeof event.error?.message === "string" && event.error.message) ||
             "The backend reported a stream error.";
+          failureCode =
+            (typeof event.code === "string" && event.code) ||
+            (typeof event.error?.code === "string" && event.error.code) ||
+            "";
           break;
         default:
           break;
       }
     });
     if (failure) {
-      return { failure };
+      return failureCode ? { failure, code: failureCode } : { failure };
     }
     const items =
       output ?? doneItems.sort((a, b) => a[0] - b[0]).map(([, item]) => item);
@@ -341,7 +351,7 @@ export async function readResponsesReply(
   }
   let data: {
     output?: unknown;
-    error?: { message?: unknown } | null;
+    error?: { message?: unknown; code?: unknown } | null;
     status?: unknown;
     incomplete_details?: { reason?: unknown } | null;
     service_tier?: unknown;
@@ -356,6 +366,7 @@ export async function readResponsesReply(
       failure:
         (typeof data.error.message === "string" && data.error.message) ||
         "The backend reported a failed response.",
+      ...(typeof data.error.code === "string" && data.error.code ? { code: data.error.code } : {}),
     };
   }
   const usage = responsesUsage(data);

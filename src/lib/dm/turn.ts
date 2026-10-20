@@ -934,6 +934,10 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
   // that ended the loop came back empty (see narrateAfterToolLeak).
   let emptyRetried = false;
   let lastReplyEmpty = false;
+  // One more try at a call the backend failed on its own side (a public
+  // API's server error, a cut stream), outside the call budget. Nothing a
+  // failed call asked for ran, so asking again repeats nothing.
+  let failureRetried = false;
   // One shot at a reply that was only the model's plan, not narration (the
   // reader's aside claims: src/lib/dm/claims-logic.ts).
   let planNudged = false;
@@ -989,15 +993,27 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
 
     if (error) {
       batcher.flush();
-      const payload = (await error.json().catch(() => null)) as { error?: string; detail?: string } | null;
-      failed = payload?.error || "The Dungeon Master could not reach the model backend.";
-      // The table reads one line; the server log keeps the status and what
-      // the backend itself said (out of memory, a crash), so an operator can
-      // tell a blip from a server that is down. The backend's words stay out
-      // of the notice: they can name internal hosts.
+      const payload = (await error.json().catch(() => null)) as
+        | { error?: string; detail?: string; reason?: string; transient?: boolean }
+        | null;
+      const headline = payload?.error || "The Dungeon Master could not reach the model backend.";
+      // The server log keeps the status and everything the backend said
+      // (out of memory, a crash), so an operator can tell a blip from a
+      // server that is down.
       console.error(
-        `[dm-turn] call ${turn.callIndex}: the model call failed (${error.status}): ${failed}${payload?.detail ? ` The backend said: ${payload.detail}` : ""}`,
+        `[dm-turn] call ${turn.callIndex}: the model call failed (${error.status}): ${headline}${payload?.detail ? ` The backend said: ${payload.detail}` : ""}`,
       );
+      if (payload?.transient && !failureRetried) {
+        // The streamed part of the failed call is withdrawn by the
+        // settleDraft at the top of the loop.
+        failureRetried = true;
+        console.warn(`[dm-turn] call ${turn.callIndex}: asking the backend once more`);
+        continue;
+      }
+      // The table reads one line, with the backend's own reason when it is
+      // a public API's (model-client.ts tableReason): a server on the LAN
+      // keeps its words in the log, where they can name internal hosts.
+      failed = payload?.reason ? `${headline.replace(/\.$/, "")}: ${payload.reason}` : headline;
       break;
     }
 

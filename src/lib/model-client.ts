@@ -37,6 +37,7 @@ import {
   type StableToolChoice,
 } from "@/lib/stable-tools";
 import { isPrivateBackendHost } from "@/lib/backend-host";
+import { tableReason, transientFailureCode, transientHttpStatus } from "@/lib/backend-failure";
 import { chatUsage, ollamaUsage, type TokenUsage } from "@/lib/usage/parse";
 import { apiSpeedEligibility } from "@/lib/speed-tier";
 import { noteSpeed } from "@/lib/speed-status";
@@ -671,6 +672,10 @@ export async function requestCustomMessage(
   // releases the server's OPENROUTER_API_KEY, and a campaign controls the
   // URL, so https://evil.test/.openrouter.ai must not read as OpenRouter.
   const isOpenRouter = caps.kind === "openrouter";
+  // A public API (OpenAI, OpenRouter, any host off this machine and LAN):
+  // its server errors are mostly blips worth one more try, where a server
+  // here that fell over (out of memory, a crash) falls over again.
+  const publicApi = !isPrivateBackendHost(trimmedBase);
   // Nothing is named in code: a blank setting runs the one chat model the
   // server lists, when it lists exactly one (src/lib/model-registry).
   const resolvedModel =
@@ -950,11 +955,14 @@ export async function requestCustomMessage(
       });
     }
 
+    const reason = tableReason(text, trimmedBase);
     return {
       error: Response.json(
         {
           error: `${isOpenRouter ? "OpenRouter" : "Backend"} request failed (${upstream.status}).`,
           detail: text.slice(0, 300),
+          ...(reason ? { reason } : {}),
+          ...(publicApi && transientHttpStatus(upstream.status) ? { transient: true } : {}),
         },
         { status: upstream.status },
       ),
@@ -974,6 +982,9 @@ export async function requestCustomMessage(
           error: requestTimeout.timedOut()
             ? `${isOpenRouter ? "OpenRouter" : "Backend"} stream stalled for ${formatTimeout(timeoutMs)}. Retry, or lower that backend's context/output settings.`
             : `The ${isOpenRouter ? "OpenRouter" : "backend"} stream was interrupted. Check the server and retry.`,
+          // A cut stream is a blip worth one more try; a stall already
+          // waited out its timeout.
+          ...(publicApi && !requestTimeout.timedOut() ? { transient: true } : {}),
         },
         { status: requestTimeout.timedOut() ? 504 : 502 },
       ),
@@ -1003,9 +1014,15 @@ export async function requestCustomMessage(
         onIdleAbort: requestTimeout.abortNow,
       });
       if ("failure" in reply) {
+        const reason = tableReason(reply.failure, trimmedBase);
         return {
           error: Response.json(
-            { error: "Backend request failed.", detail: reply.failure.slice(0, 300) },
+            {
+              error: "Backend request failed.",
+              detail: `${reply.code ? `[${reply.code}] ` : ""}${reply.failure}`.slice(0, 300),
+              ...(reason ? { reason } : {}),
+              ...(publicApi && transientFailureCode(reply.code) ? { transient: true } : {}),
+            },
             { status: 502 },
           ),
         };
