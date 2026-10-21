@@ -5,6 +5,7 @@
 // with a blank brief: his card offers the save, the save files him in the
 // lead's library as a companion, once however often it is pressed, and his
 // card, linked now, keeps the save and shows no "Hand to the DM" repair.
+// Hand back is on his card before and after the save.
 import { check, eventually, sleep } from "../lib.mjs";
 
 export default {
@@ -32,14 +33,26 @@ export default {
     await openParty();
     const save = garrickCard().getByRole("button", { name: /save to library/i });
     await eventually(() => save.count(), { label: "Save to library on Garrick's card" });
+    // Hand back is offered before he is saved too, though his brief is blank.
+    check((await garrickCard().getByRole("button", { name: /hand garrick thorn back to the dm/i }).count()) === 1, "Hand back before the save");
     await save.first().scrollIntoViewIfNeeded();
     await t.shot("garrick-card");
+    // The first viewport files him; the next finds him filed and saves onto
+    // him, and that "Saved" shows for two seconds only, so the answer is read
+    // from the response and the card checked while it still says so.
+    const answered = page.waitForResponse((response) => response.url().includes("/sheet/sync"), { timeout: 15_000 });
     await t.tap(save.first());
-    // The first viewport files him; the next finds him filed and saves onto him.
-    await eventually(
-      async () => (await garrickCard().getByText(/added to your library as a companion|^saved$/i).count()) > 0,
-      { label: "the save confirmed on the card" },
-    );
+    const reply = await answered;
+    check(reply.status() === 200, `the save answered ${reply.status()}`);
+    const body = await reply.json();
+    await eventually(() => garrickCard().getByRole("button", { name: /saved/i }).count(), {
+      timeoutMs: 1_800,
+      every: 100,
+      label: "the card saying Saved",
+    });
+    if (body.created) {
+      check((await garrickCard().getByText(/added to your library as a companion/i).count()) === 1, "the card says he was filed");
+    }
     check((await garrickCard().getByText(/could not|not linked/i).count()) === 0, "no error on Garrick's card");
     await t.shot("garrick-saved");
 

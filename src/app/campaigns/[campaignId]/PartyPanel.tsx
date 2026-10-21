@@ -1028,7 +1028,14 @@ export function PartyPanel({
               <TakeOverAllyButton campaignId={campaignId} sheet={sheet} />
             ) : null}
 
-            {campaignId && mine && !sheet.isCompanion && myOwn.length > 1 && (sheet.personality || sheet.libraryRole === "companion") ? (
+            {/* An ally taken over and never saved has no library row and may
+                have a blank brief (a hand-built companion's is its backstory);
+                the missing row marks it as well. */}
+            {campaignId &&
+            mine &&
+            !sheet.isCompanion &&
+            myOwn.length > 1 &&
+            (sheet.personality || sheet.libraryRole === "companion" || !sheet.libraryCharacterId) ? (
               <HandBackButton campaignId={campaignId} sheet={sheet} />
             ) : null}
 
