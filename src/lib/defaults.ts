@@ -39,7 +39,10 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
   comfyCheckpoint: "",
   aspect: "square",
   imageGenerationEnabled: true,
-  autoImages: true,
+  // Scene pictures (the DM's generate_image) are off for a new campaign;
+  // location maps still paint, since they are gated on the switch above
+  // alone. Turned on per campaign under Story AI > Auto scenes.
+  autoImages: false,
   proseSize: "medium",
 };
 

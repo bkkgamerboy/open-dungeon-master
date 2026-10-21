@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
-import { ModeRow, Section } from "@/components/HelpDialog";
+import { Section } from "@/components/HelpDialog";
 
 // Onboarding read for newcomers: what the app is, how to get a table running,
 // who does the maths, and the table etiquette that follows from coalesced DM
@@ -78,15 +78,12 @@ export function HowToPlayDialog({
       </Section>
 
       <Section icon={MessageSquareText} title="Taking your turn">
-        <p>The buttons above the message box change what your message means:</p>
-        <ModeRow label="Do">
-          Describe what your character does. The DM narrates the outcome and asks for a roll when
-          the rules call for one.
-        </ModeRow>
-        <ModeRow label="Say">Speak in character. Your text is sent as spoken dialogue.</ModeRow>
-        <ModeRow label="OOC">
-          Out-of-character table talk. The DM does not read it or respond to it.
-        </ModeRow>
+        <p>
+          Write what your character does or says in plain words, such as{" "}
+          <span className="text-stone-300">I search the altar</span> or{" "}
+          <span className="text-stone-300">say: who goes there?</span> The DM narrates the outcome
+          and asks for a roll when the rules call for one.
+        </p>
         <p>
           To ask the DM a question about the story, the world, the rules, or your sheet, open the{" "}
           <span className="text-stone-300">Ask the DM</span> strip just above the message box. The
@@ -111,9 +108,8 @@ export function HowToPlayDialog({
           already in progress.
         </p>
         <p>
-          OOC is the safe channel for that discussion: it never wakes the DM, and it still works
-          while the floor is locked during narration. Sometimes the DM puts one player in the
-          spotlight and waits for them, and a banner will tell you when that is why you cannot act.
+          Sometimes the DM puts one player in the spotlight and waits for them, and a banner will
+          tell you when that is why you cannot act.
         </p>
       </Section>
 

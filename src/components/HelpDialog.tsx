@@ -100,20 +100,15 @@ export function HelpDialog({
       </Section>
 
       <Section icon={MessageSquareText} title="Talking to the DM">
-        <p>The buttons above the message box change what your message means:</p>
-        <ModeRow label="Do">
-          Describe what your character does. The DM narrates the outcome and asks for dice rolls
-          when the rules call for them.
-        </ModeRow>
-        <ModeRow label="Say">
-          Speak in character. Your text is sent as spoken dialogue, in quotes.
-        </ModeRow>
-        <ModeRow label="OOC">
-          Out-of-character table talk. The DM does not respond to it, and it stays available even
-          when the floor is locked during narration or a spotlight.
-        </ModeRow>
+        <p>
+          Write what your character does or says in plain words, such as{" "}
+          <span className="text-stone-300">I search the altar</span> or{" "}
+          <span className="text-stone-300">say: who goes there?</span> The DM narrates the outcome
+          and asks for dice rolls when the rules call for them.
+        </p>
         <ModeRow label="Direct" lead>
-          Party lead only. Send the DM an authoritative story direction it must weave into the
+          Party lead only: the icon beside the microphone. While it is on, what you send is not
+          your character&apos;s action but an authoritative story direction the DM must weave into the
           tale, or arm one of the seven canned events: Combat, Place, Social, Romance, Mystery,
           Weird or Windfall. Turn on <span className="text-stone-300">Private</span> and the
           direction goes to the DM alone: no character hears it, it never enters the transcript,
@@ -136,7 +131,7 @@ export function HelpDialog({
         </p>
         <p>
           Sometimes the DM puts one player in the spotlight and waits for them to act. While the
-          floor is locked for you, a banner explains why, and OOC and the Ask strip still work.
+          floor is locked for you, a banner explains why, and the Ask strip still works.
           Small chips above the message box name the background work the engine is doing between
           turns, such as compacting history, sealing a chapter, running the world tick or answering
           an Ask, with how long it has been going.
@@ -147,9 +142,12 @@ export function HelpDialog({
         <p>
           While a fight is on, your options appear as a hand of cards above the message box: one
           for each weapon you carry, each spell you have prepared, your class features, and the
-          basic actions (Dodge, Dash, Disengage, Help, Hide, Ready, Grapple, Shove, Use an object,
-          End turn). Each card shows what it costs (action, bonus action, reaction, a spell slot, a
-          use) and what it rolls, worked out from your sheet.
+          basic actions (Dodge, Dash, Disengage, Help, Hide, Ready, Grapple, Shove, Use an object).
+          Each card shows what it costs (action, bonus action, reaction, a spell slot, a use) and
+          what it rolls, worked out from your sheet. <span className="text-stone-300">End</span>,
+          beside the Action, Bonus and Reaction marks, ends your turn in one tap. The party lead
+          also holds <span className="text-stone-300">Skip turn</span> while someone else&apos;s
+          turn is under way.
         </p>
         <p>
           Pick a card, pick who it lands on from the chips or by tapping them on the battle map,
@@ -159,9 +157,11 @@ export function HelpDialog({
           or press it to see why. Rider cards such as Divine Smite attach to your next attack.
         </p>
         <p>
-          The hand never replaces typing. The message box, Do, Say and OOC, the microphone and
-          Enter to send all work exactly as before, and the arrow on the hand&apos;s bar puts it
-          away. The question mark beside it replays the two-line introduction.
+          The hand never replaces typing. The message box, the microphone and the send button work
+          exactly as before, and the arrow on the hand&apos;s bar puts it away. After you send a
+          card the hand puts itself away so you can read the DM&apos;s answer, and comes back out on
+          your next turn. <span className="text-stone-300">How the hand works</span>, in the
+          customise sheet (the sliders), replays the two-line introduction.
         </p>
       </Section>
 

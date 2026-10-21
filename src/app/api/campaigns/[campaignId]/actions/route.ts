@@ -108,8 +108,8 @@ export async function POST(
       return Response.json(
         {
           error: combatOwnsFloor(floor)
-            ? "The enemies are taking their turns; the DM hands the turn on. Use OOC for table talk."
-            : `The ${campaign.dmUserId ? "DM" : "party lead"} has not opened responses yet. Use OOC for table talk.`,
+            ? "The enemies are taking their turns; the DM hands the turn on."
+            : `The ${campaign.dmUserId ? "DM" : "party lead"} has not opened responses yet.`,
           floor,
         },
         { status: 409 },
@@ -118,7 +118,7 @@ export async function POST(
     if (floor.mode === "initiative") {
       return Response.json(
         {
-          error: `It is ${floor.currentName || "another character"}'s turn in the initiative order. Use OOC for table talk.`,
+          error: `It is ${floor.currentName || "another character"}'s turn in the initiative order.`,
           floor,
         },
         { status: 409 },
@@ -138,7 +138,7 @@ export async function POST(
     return Response.json(
       {
         error: waitingOn
-          ? `The DM is waiting on ${waitingOn}. Use OOC for table talk.`
+          ? `The DM is waiting on ${waitingOn}.`
           : "It is not your moment to act.",
         floor,
       },

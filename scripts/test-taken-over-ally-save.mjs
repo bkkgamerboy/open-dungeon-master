@@ -7,14 +7,16 @@
 // way home, and the campaign's end skipped it too. Held here, through the
 // real routes:
 //
-//   the own card's save (POST /sheet/sync) links an unsaved taken-over ally
-//   to the same-named companion already in its player's library, or files a
-//   new library companion, and writes to that row from then on, even for an
-//   ally built by hand with a blank brief; a linked one saves as before;
-//   nobody else can save it; handing it back after saving keeps the row, so
-//   its companion card saves onto it; and the campaign's end carries an
-//   unsaved taken-over ally home to its player's library, the dead staying
-//   behind.
+//   the take-over gives an ally built by hand with a blank brief a brief of
+//   its own, since the brief is what marks a taken-over ally; the own card's
+//   save (POST /sheet/sync) links an unsaved taken-over ally to the
+//   same-named companion already in its player's library, or files a new
+//   library companion, and writes to that row from then on; a linked one
+//   saves as before; nobody else can save it; a player's own hero with no
+//   row and no brief is not filed as a companion; handing it back after
+//   saving keeps the row, so its companion card saves onto it; and the
+//   campaign's end carries an unsaved taken-over ally home to its player's
+//   library, the dead and a briefless hero staying behind.
 import assert from "node:assert/strict";
 import { openWorld } from "./lib/enforce-world.mjs";
 import { suite } from "./lib/enforce-harness.mjs";
@@ -26,6 +28,7 @@ const world = await openWorld({
   campaign: { startingLevel: 3 },
 });
 const characters = await import("../src/lib/db/characters.ts");
+const sheetsDb = await import("../src/lib/db/sheets.ts");
 const { createSheetSchema } = await import("../src/lib/schemas/sheet.ts");
 const { finalizeNewCompanion } = await import("../src/lib/dm/companion-tools.ts");
 
@@ -88,9 +91,9 @@ async function takenOver(name, klass) {
   return own;
 }
 
-await test("an unsaved taken-over ally with a blank brief files a new library companion", async () => {
+await test("an unsaved taken-over ally built with a blank brief files a new library companion", async () => {
   const bruce = await takenOver("Bruce", "fighter");
-  assert.equal(bruce.personality, "", "the brief is blank, so the save cannot lean on it");
+  assert.equal(bruce.personality, sheetsDb.TAKEN_OVER_BRIEF, "the take-over gave the blank brief one of its own");
   world.patch(bruce.id, { xp: 2700, level: 4, gold: 41, equipment: [{ name: "Longsword +1", qty: 1 }] });
   const { status, json } = await call(SYNC, "POST", lead, {}, { characterId: bruce.id });
   assert.equal(status, 200, json.error);
@@ -148,6 +151,18 @@ await test("nobody else can save the lead's taken-over ally", async () => {
   assert.equal(characters.saveCompanionToLibrary(kramer.id, player.id).error, "That is not a companion.");
 });
 
+// A sheet from before every hero was filed in the library: the lead's own,
+// with no row and no brief.
+const legacy = world.addHero({ user: lead, class: "wizard", name: "Old Hand", level: 3 });
+
+await test("a player's own hero with no row and no brief is not filed as a companion", async () => {
+  assert.equal(world.sheet(legacy.id).libraryCharacterId, null);
+  const { status, json } = await call(SYNC, "POST", lead, {}, { characterId: legacy.id });
+  assert.equal(status, 400);
+  assert.match(json.error, /not linked/);
+  assert.ok(!characters.listCharactersForUser(lead.id).some((entry) => entry.name === "Old Hand"));
+});
+
 await test("handed back after saving, the ally's companion card saves onto the same row", async () => {
   const bruce = world.sheets().find((entry) => entry.name === "Bruce");
   const back = await call(BACK, "POST", lead, {}, { sheetId: bruce.id });
@@ -171,6 +186,7 @@ await test("the campaign's end carries an unsaved taken-over ally home and leave
   const names = shelf.map((entry) => entry.name);
   assert.ok(names.includes("Mira"), `saved: ${names.join(", ")}`);
   assert.ok(!names.includes("Old Bram"), "the dead stay behind");
+  assert.ok(!characters.listCharactersForUser(lead.id).some((entry) => entry.name === "Old Hand"), "a briefless hero stays as it was");
   assert.equal(world.sheet(mira.id).libraryCharacterId, shelf.find((entry) => entry.name === "Mira").id);
   assert.equal(shelf.find((entry) => entry.name === "Mira").sheet.gold, 12);
 });

@@ -518,8 +518,11 @@ export function TabletopChronicle({
     sheets.find((sheet) => sheet.userId === message.userId)?.name ??
     members.find((member) => member.userId === message.userId)?.username ??
     "Someone";
-  const modes: InputKind[] = isDm ? ["narrate", "ooc"] : ["do", "say", "ooc", ...(steersStory ? (["lead"] as InputKind[]) : [])];
-  const modeLabel: Record<string, string> = { do: "Do", say: "Say", ooc: "OOC", lead: "Direct", narrate: "Narrate" };
+  // A player writes in plain words and has no pills (build 24, as in
+  // Composer.tsx); the lead's Direct is an icon in the well. The DM keeps
+  // Narrate and OOC.
+  const modes: InputKind[] = isDm ? ["narrate", "ooc"] : [];
+  const modeLabel: Record<string, string> = { ooc: "OOC", narrate: "Narrate" };
   // The drop cap goes to the first passage on the scroll, like a page.
   const firstPassageId = recent.find((message) => message.authorType === "dm")?.id;
   return (
@@ -596,6 +599,7 @@ export function TabletopChronicle({
         </div>
         {composer ? (
         <form onSubmit={onSubmit} className="cine-chronicle-desk">
+          {modes.length ? (
           <div className="cine-chronicle-modes" data-pill-group="" role="group" aria-label="How you speak">
             {modes.map((option) => (
               <button
@@ -611,6 +615,7 @@ export function TabletopChronicle({
               </button>
             ))}
           </div>
+          ) : null}
           <div className="cine-chronicle-well" data-over={tooLong ? "" : undefined}>
             <DictateField
               label="Your move"
@@ -636,6 +641,20 @@ export function TabletopChronicle({
                 className="cine-chronicle-input"
               />
             </DictateField>
+            {steersStory && !isDm ? (
+              <button
+                type="button"
+                onClick={() => onKindChange(kind === "lead" ? "do" : "lead")}
+                aria-pressed={kind === "lead"}
+                aria-label="Direct the story"
+                title={kind === "lead" ? "Directing the story. Press again to act as your character." : "Party lead only. Send the DM an authoritative story direction."}
+                data-on={kind === "lead" ? "" : undefined}
+                data-mode="lead"
+                className="cine-chronicle-mode shrink-0"
+              >
+                <GameIcon icon={{ kind: "glyph", key: MODE_GLYPHS.lead }} size="size-5" />
+              </button>
+            ) : null}
             <button type="submit" disabled={sending || !input.trim() || inputBlocked || tooLong} className="cine-chronicle-send" aria-label="Send">
               Send <span aria-hidden="true">&#10230;</span>
             </button>

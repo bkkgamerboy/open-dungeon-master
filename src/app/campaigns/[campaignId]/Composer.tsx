@@ -45,7 +45,10 @@ const KIND_TIPS: Record<InputKind, string> = {
 };
 
 // The action composer at the bottom of the game chat: pending-roll cards,
-// floor banners, the join notice, kind pills and the input row.
+// floor banners, the join notice and the input row. A player writes what
+// their character does or says in plain words ("I...", "say..."), so there
+// is no row of Do, Say and OOC pills (build 24); the lead's Direct is an icon
+// beside the microphone. The person in a DM seat keeps Narrate and OOC.
 //
 // Asking the DM a question is NOT a mode here. It lives entirely in the Ask
 // strip just above this composer (AskPanel.tsx), which has its own box. An
@@ -157,7 +160,10 @@ function ComposerInner({
   const length = textLength(input);
   const tooLong = length > maxChars;
   return (
-    <form onSubmit={onSubmit} className="glass session-desk cine-desk border-t border-stone-700/40 px-3 pb-3 pt-2.5">
+    // shrink-0: a short screen (a phone with its keyboard up) takes its room
+    // from the transcript above, never from the box being typed in, whose
+    // own text and Send would otherwise slide out of view.
+    <form onSubmit={onSubmit} className="glass session-desk cine-desk shrink-0 border-t border-stone-700/40 px-3 pb-3 pt-2.5">
       <div className="mx-auto max-w-3xl sm:px-3">
         {pendingRolls.map((pending) => (
           <PendingRollCard
@@ -228,58 +234,49 @@ function ComposerInner({
             composerRef={composerRef}
             trackAmmo={trackAmmo}
             edges={edges}
+            steersStory={steersStory}
           />
         ) : null}
-        <div data-pill-group="" className="mb-2 flex flex-wrap items-center gap-1.5" data-tour="composer-modes">
-          {/* The DM authors and talks out of character; they have no
-              character to act or speak as, and the story directions exist to
-              steer an AI narrator they have replaced. */}
-          {(isDm
-            ? (["narrate", "ooc"] as const)
-            : ([
-                "do",
-                "say",
-                "ooc",
-                ...(steersStory ? (["lead"] as const) : []),
-              ] as const)
-          ).map(
-            (option) => (
-              <Tooltip key={option} content={KIND_TIPS[option]}>
-                <button data-on={kind === option ? "" : undefined}
-                  data-mode={option}
-                  type="button"
-                  onClick={() => onKindChange(option)}
-                  className="session-mode"
-                >
-                  <GameIcon icon={{ kind: "glyph", key: MODE_GLYPHS[option] }} size="size-6" />
-                  {option === "do"
-                    ? "Do"
-                    : option === "say"
-                      ? "Say"
-                      : option === "ooc"
-                        ? "OOC"
-                        : "Direct"}
-                </button>
-              </Tooltip>
-            ),
-          )}
-          {dmStatus !== "idle" ? (
-            <span className="session-status live-in">
-              <D20Spinner className="size-4 shrink-0 text-amber-500" />
-              {dmStatus === "rolling"
-                ? "DM rolling dice..."
-                : dmStatus === "awaiting_rolls"
-                  ? "Waiting on real dice..."
-                  : dmStatus === "narrating"
-                    ? "DM narrating..."
-                    : dmStatus === "writing_chapter"
-                      ? "DM writing the chapter..."
-                      : dmStatus === "plotting_arc"
-                        ? "DM plotting the story arc..."
-                        : "DM at work..."}
-            </span>
-          ) : null}
-        </div>
+        {isDm || dmStatus !== "idle" ? (
+          <div data-pill-group="" className="mb-2 flex flex-wrap items-center gap-1.5" data-tour="composer-modes">
+            {/* The DM authors and talks out of character; they have no
+                character to act or speak as, and the story directions exist to
+                steer an AI narrator they have replaced. A player has no pills:
+                the row is only the DM's work, while there is some. */}
+            {isDm
+              ? (["narrate", "ooc"] as const).map((option) => (
+                  <Tooltip key={option} content={KIND_TIPS[option]}>
+                    <button
+                      data-on={kind === option ? "" : undefined}
+                      data-mode={option}
+                      type="button"
+                      onClick={() => onKindChange(option)}
+                      className="session-mode"
+                    >
+                      <GameIcon icon={{ kind: "glyph", key: MODE_GLYPHS[option] }} size="size-6" />
+                      {option === "narrate" ? "Narrate" : "OOC"}
+                    </button>
+                  </Tooltip>
+                ))
+              : null}
+            {dmStatus !== "idle" ? (
+              <span className="session-status live-in">
+                <D20Spinner className="size-4 shrink-0 text-amber-500" />
+                {dmStatus === "rolling"
+                  ? "DM rolling dice..."
+                  : dmStatus === "awaiting_rolls"
+                    ? "Waiting on real dice..."
+                    : dmStatus === "narrating"
+                      ? "DM narrating..."
+                      : dmStatus === "writing_chapter"
+                        ? "DM writing the chapter..."
+                        : dmStatus === "plotting_arc"
+                          ? "DM plotting the story arc..."
+                          : "DM at work..."}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {/*
           Direct's own controls, and the reason there is no second row of
           director buttons above this composer: a canned event to arm, and the
@@ -345,6 +342,27 @@ function ComposerInner({
                 className={cn(ui.btnSmall, "session-deskbtn text-stone-400")}
               >
                 <Hand className="size-4" />
+              </button>
+            </Tooltip>
+          ) : null}
+          {/* Direct, the lead's story direction: one icon beside the
+              microphone, on while the next send is a direction. */}
+          {steersStory && !isDm ? (
+            <Tooltip content={kind === "lead" ? "Directing the story. Press again to act as your character." : KIND_TIPS.lead}>
+              <button
+                type="button"
+                onClick={() => onKindChange(kind === "lead" ? "do" : "lead")}
+                aria-pressed={kind === "lead"}
+                aria-label="Direct the story"
+                data-tour="composer-direct"
+                data-on={kind === "lead" ? "" : undefined}
+                className={cn(
+                  ui.btnSmall,
+                  "session-deskbtn",
+                  kind === "lead" ? "border-amber-500/70 bg-amber-500/15 text-amber-200" : "text-stone-400",
+                )}
+              >
+                <GameIcon icon={{ kind: "glyph", key: MODE_GLYPHS.lead }} size="size-4" />
               </button>
             </Tooltip>
           ) : null}

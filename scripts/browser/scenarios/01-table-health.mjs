@@ -14,7 +14,7 @@ export default {
     // A fight is on and it is Tavi's turn, so the Hand deals cards.
     await eventually(() => page.locator(`${root}.hand-card`).count(), { timeoutMs: 30_000, label: "the Hand's cards" });
     const cards = await page.locator(`${root}.hand-card`).count();
-    check(cards >= 3, `the Hand shows ${cards} cards; a rogue on their turn has at least Attack, Move and End turn`);
+    check(cards >= 3, `the Hand shows ${cards} cards; a rogue on their turn has at least Attack, Dodge and Dash`);
     // The board is drawn (its tiles are in the page even where a phone tabs
     // it away) and the painted picture lands on it.
     await eventually(() => page.locator(`${root}[data-tile-x]`).count(), { timeoutMs: 30_000, label: "the board's tiles" });

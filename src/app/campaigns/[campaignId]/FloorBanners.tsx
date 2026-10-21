@@ -1,26 +1,25 @@
 "use client";
 
-import { useState } from "react";
 import { Check } from "lucide-react";
-import { cn } from "@/lib/cn";
 import { SessionBanner, bannerButtonClass } from "@/app/campaigns/[campaignId]/SessionBanner";
 import type { Floor } from "@/lib/db/campaigns";
 import type { PublicEncounter } from "@/lib/db/encounter-view";
-import { extraTurnTag, currentOrderIndex, orderRowKey } from "@/lib/battlemap/initiative-rows";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
 
-// Spotlight, held-responses, and initiative banners above the composer;
-// the lead gets the release/skip buttons, the current player gets End turn.
+// Spotlight and held-responses banners above the composer, with the lead's
+// release button. A fight has no banner here (build 24): the round's red
+// banner took a line of the screen for what the board and the hand already
+// show; End is beside the hand's pips, and the lead's Skip turn is a card in
+// the hand on others' turns (and stays in the Lead panel).
 export function FloorBanners({
-  campaignId,
   floor,
   spotlighted,
   heldSpotlightNames,
   encounter,
   steersStory,
-  meUserId = "",
   onRelease,
 }: {
+  // Kept for callers; the fight's banner that used them is gone.
   campaignId: string;
   floor: Floor;
   spotlighted: CharacterSheet[];
@@ -30,101 +29,8 @@ export function FloorBanners({
   meUserId?: string;
   onRelease: () => void;
 }) {
-  const [endingTurn, setEndingTurn] = useState(false);
-  // The end-turn route's refusal, in its own words, under the banner.
-  const [refusal, setRefusal] = useState("");
-  const myInitiativeTurn =
-    floor.mode === "initiative" && meUserId !== "" && floor.userIds.includes(meUserId);
-
-  // Attacks no longer end the turn by themselves (movement and bonus
-  // actions stay open), so this is the player's way to say "done".
-  async function endTurn() {
-    setEndingTurn(true);
-    setRefusal("");
-    try {
-      const response = await fetch(`/api/campaigns/${campaignId}/encounter/end-turn`, { method: "POST" });
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { error?: string };
-        setRefusal(data.error ?? "The turn could not be ended.");
-      }
-    } catch {
-      setRefusal("Could not reach the table.");
-    } finally {
-      setEndingTurn(false);
-    }
-  }
-
   return (
     <>
-      {floor.mode === "initiative" ? (
-        <SessionBanner
-          glyph="attitude-hostile"
-          tone="blood"
-          title={<>Round {floor.round}</>}
-          actions={
-            myInitiativeTurn || steersStory ? (
-              <>
-                {myInitiativeTurn ? (
-                  <button
-                    type="button"
-                    onClick={endTurn}
-                    disabled={endingTurn}
-                    className={bannerButtonClass(true)}
-                    title="Done with your action, movement, and bonus action? End your combat turn."
-                  >
-                    End turn
-                  </button>
-                ) : null}
-                {steersStory ? (
-                  <button
-                    type="button"
-                    onClick={onRelease}
-                    className={bannerButtonClass()}
-                    title="Skip the current player's turn"
-                  >
-                    Skip turn
-                  </button>
-                ) : null}
-              </>
-            ) : null
-          }
-        >
-          <span className="block truncate">
-              {encounter?.orderReady && encounter.order.length ? (
-                <>
-                  {encounter.order.map((entry, index) => {
-                    // A player's order leaves hidden combatants out, so the
-                    // pointer's index can point past them; the engine names
-                    // who it rests on. A thief's second round-1 turn is a
-                    // second row with the same id (Thief's Reflexes).
-                    const current = index === currentOrderIndex(encounter.order, encounter.turnIndex, encounter.acting);
-                    return (
-                      <span
-                        key={orderRowKey(entry, index)}
-                        title={extraTurnTag(entry)?.title}
-                        className={cn(
-                          "transition-opacity duration-200",
-                          current ? "font-semibold" : "opacity-60",
-                        )}
-                      >
-                        {index > 0 ? " > " : ""}
-                        {entry.name}
-                        {entry.reflex ? <sup className="motion-pop ml-0.5 text-[9px] text-amber-300">{extraTurnTag(entry)?.short}</sup> : null}
-                      </span>
-                    );
-                  })}
-                </>
-              ) : (
-                <>{floor.currentName}&apos;s turn</>
-              )}
-          </span>
-          {refusal ? (
-            <span key={refusal} role="alert" className="mt-0.5 block animate-fade-up text-xs text-amber-200">
-              {refusal}
-            </span>
-          ) : null}
-        </SessionBanner>
-      ) : null}
       {floor.mode === "spotlight" ? (
         <SessionBanner
           glyph="sense-truesight"

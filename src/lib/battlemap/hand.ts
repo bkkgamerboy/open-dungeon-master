@@ -358,8 +358,9 @@ const BASICS: Array<{ id: BasicActionId; name: string; rules: string; target: Ha
   { id: "grapple", name: "Grapple", rules: "Athletics against their Athletics or Acrobatics. Takes the place of one attack.", target: "enemy" },
   { id: "shove", name: "Shove", rules: "Knock them prone or push them 5 ft. Takes the place of one attack.", target: "enemy" },
   { id: "use-object", name: "Use an object", rules: "Drink, pull, light, throw: say what.", target: "none", compose: true },
-  { id: "end-turn", name: "End turn", rules: "Done with your action, movement and bonus action.", target: "none" },
 ];
+// End turn is no longer a card in the hand (build 24): it is the one-tap End
+// button beside the turn's pips (Hand.tsx), so its seat is the player's.
 
 // The moves a feature lets a character make as the bonus action, by the
 // engine's own reading of the sheet (bonus-routes.ts, which take_action asks).
@@ -377,7 +378,7 @@ function basicCards(sheet: CharacterSheet, turn: HandTurn, riders: CombatRiders)
   const athletics = derived.skills.athletics ?? derived.abilityMods.str;
   const make = (basic: (typeof BASICS)[number], route: BonusRoute | null): HandCard => {
     const contest = basic.id === "grapple" || basic.id === "shove";
-    const cost: HandCost = basic.id === "end-turn" || basic.id === "stand-up" ? "free" : route ? "bonus" : "action";
+    const cost: HandCost = basic.id === "stand-up" ? "free" : route ? "bonus" : "action";
     const escape = basic.id === "escape";
     const ki = route?.ki ? kiLeft(sheet) : null;
     return {
@@ -436,11 +437,6 @@ function basicCards(sheet: CharacterSheet, turn: HandTurn, riders: CombatRiders)
       cards.push(gated(card, standingGate(sheet, turn, "move"), still));
       continue;
     }
-    if (basic.id === "end-turn") {
-      // Ending the turn is always open to whoever holds it, down or not.
-      cards.push(turn.myTurn ? card : gated(card, standingGate(sheet, turn, "free")));
-      continue;
-    }
     const contest = basic.id === "grapple" || basic.id === "shove";
     const still: Gate =
       basic.id === "dash" && effectiveSpeed(sheet.conditions, sheet.speed) === 0
@@ -476,6 +472,40 @@ function basicCards(sheet: CharacterSheet, turn: HandTurn, riders: CombatRiders)
 }
 
 // ---- the hand ----
+
+// The lead's Skip turn (build 24), in the hand while somebody else's turn in
+// the fight is under way: the one the round banner used to carry, and the
+// way past a turn that has stalled. It is played through the floor route as
+// the Lead panel's Skip turn is, so it is not the character's option and is
+// never held by their turn.
+export const SKIP_TURN_ID = "basic:skip-turn";
+export function skipTurnCard(currentName: string): HandCard {
+  const whose = currentName.trim() ? `${currentName.trim()}'s turn` : "the turn under way";
+  return {
+    id: SKIP_TURN_ID,
+    type: "basic",
+    name: "Skip turn",
+    cost: "free",
+    range: "",
+    dice: "",
+    roll: "no roll",
+    rules: `Skip ${whose}: the turn passes to the next in the order. Only the party lead can.`,
+    resource: "",
+    condition: "",
+    icon: { kind: "action", key: "end-turn" },
+    target: "none",
+    toHit: null,
+    damage: null,
+    damageType: "",
+    heals: false,
+    save: null,
+    melee: false,
+    disabled: null,
+    spent: false,
+    compose: false,
+    intent: { card: "basic", action: "skip-turn" },
+  };
+}
 
 // Attacks, the riders that ride them, spells by level, class features, then
 // the basics every character has, so a level 1 commoner still holds a hand.

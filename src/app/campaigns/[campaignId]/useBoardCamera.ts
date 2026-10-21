@@ -161,10 +161,12 @@ export function useBoardCamera(
     [fit, metrics],
   );
 
-  // The close-up a phone rests on: the focus tile in the middle at the zoom
-  // that shows `tiles` across, the board's edge kept to the frame's edge so
-  // no bare table shows beside it; the fit when there is nothing to focus
-  // on or the whole board is already that close.
+  // The close-up a phone rests on: the focus tile in the very middle at the
+  // zoom that shows `tiles` across, so the figure whose turn it is always
+  // sits mid-screen. Near the board's edge the dark frame shows past it
+  // (build 24); before, the edge was kept to the frame's edge and a figure
+  // in a corner of the map sat in a corner of the screen. The fit when there
+  // is nothing to focus on or the whole board is already that close.
   const closeTiles = options.closeUp?.tiles ?? 0;
   const focusX = options.closeUp?.focus?.x ?? null;
   const focusY = options.closeUp?.focus?.y ?? null;
@@ -179,16 +181,12 @@ export function useBoardCamera(
       return whole;
     }
     const unit = TILE * m.unit * zoom;
-    const wide = boardWidth * unit;
-    const tall = boardHeight * unit;
-    const edge = (size: number, span: number, want: number) =>
-      size <= span ? (span - size) / 2 : Math.min(0, Math.max(span - size, want));
     return {
       zoom,
-      x: edge(wide, m.width, m.width / 2 - (focusX + 0.5) * unit),
-      y: edge(tall, m.height, m.height / 2 - (focusY + 0.5) * unit),
+      x: m.width / 2 - (focusX + 0.5) * unit,
+      y: m.height / 2 - (focusY + 0.5) * unit,
     };
-  }, [metrics, fit, clampZoom, boardWidth, boardHeight, closeTiles, focusX, focusY]);
+  }, [metrics, fit, clampZoom, boardWidth, closeTiles, focusX, focusY]);
   // The latest resting view for the resize observer, which should not be
   // torn down and rebuilt (and so re-land the view) every time a figure
   // moves the focus.

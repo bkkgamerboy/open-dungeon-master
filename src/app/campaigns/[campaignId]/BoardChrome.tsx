@@ -235,10 +235,13 @@ export function TurnHud({
 
 // The banner that wipes across the board when the turn changes. Keyed by the
 // caller so a new turn replays it; it removes itself by ending transparent.
+// At the top of the board (build 24), with the same wipe and fade: the
+// camera now centres exactly on the figure whose turn it is, and a banner in
+// the middle would sit right over it.
 export function TurnBanner({ text, mine }: { text: string; mine: boolean }) {
   const ink = mine ? "#f4e0a6" : "#e9e6f4";
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-[42%] z-10 flex flex-col items-center gap-2" aria-hidden="true">
+    <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex flex-col items-center gap-2" aria-hidden="true">
       <div
         className="board-banner px-[30px] py-[9px]"
         style={{

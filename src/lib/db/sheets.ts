@@ -231,13 +231,19 @@ export function adoptSheetAsCompanion(
 // gear and conditions stay as play left them, and the id stays, so an
 // initiative slot or a token keeps pointing at it; only the owner and the
 // companion mark change. The personality brief stays on the row for the
-// day it is handed back.
+// day it is handed back, and it is what marks the sheet as an ally its
+// player took over (src/lib/db/characters.ts isUnsavedTakenOverAlly), so a
+// blank one, as a companion built by hand with no backstory has, gets a
+// plain brief of its own.
+export const TAKEN_OVER_BRIEF = "Travels with the party; speaks plainly and fights at the party's side.";
 export function takeOverCompanionSheet(sheetId: string, userId: string): CharacterSheet | null {
   getDatabase()
     .prepare(
-      `UPDATE character_sheets SET user_id = ?, is_companion = 0, companion_kind = NULL, updated_at = ? WHERE id = ? AND is_companion = 1`,
+      `UPDATE character_sheets SET user_id = ?, is_companion = 0, companion_kind = NULL,
+        personality = CASE WHEN TRIM(COALESCE(personality, '')) = '' THEN ? ELSE personality END, updated_at = ?
+       WHERE id = ? AND is_companion = 1`,
     )
-    .run(userId, nowIso(), sheetId);
+    .run(userId, TAKEN_OVER_BRIEF, nowIso(), sheetId);
   return getSheetById(sheetId);
 }
 

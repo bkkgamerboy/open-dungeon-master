@@ -1749,6 +1749,18 @@ html[data-effects="low"] .board-compact-sheet { animation: none; }
   .cine-party { display: none; }
 }
 
+/* A phone's keyboard is up (src/hooks/use-keyboard-open.ts, build 24): the
+   few hundred pixels left go to the box being typed in. The tab bar steps
+   aside until the keyboard closes (nobody switches tab mid-sentence), the
+   hand's cards fold away while its pips and End stay, and should what is
+   left still be taller than the screen, the column scrolls rather than the
+   message box sliding under whatever is below it. */
+html[data-keyboard="open"] .cine-bottombar { display: none !important; }
+html[data-keyboard="open"] .hand-fan,
+html[data-keyboard="open"] .hand-aim,
+html[data-keyboard="open"] .hand-played { display: none; }
+html[data-keyboard="open"] .cine-chat { overflow-y: auto; }
+
 /* ---- reduced motion and low effects ---- */
 
 @media (prefers-reduced-motion: reduce) {

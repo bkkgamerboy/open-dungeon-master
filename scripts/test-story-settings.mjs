@@ -112,6 +112,15 @@ const campaign = createCampaign(lead.id, {
   difficulty: "normal",
 });
 
+// Build 24: a new campaign paints its location maps but no scene pictures
+// until Auto scenes is turned on; a campaign that turned it on keeps it.
+test("a new campaign starts with pictures on and Auto scenes off", () => {
+  const fresh = getCampaignById(campaign.id).settings;
+  assert.equal(fresh.imageGenerationEnabled, true);
+  assert.equal(fresh.autoImages, false);
+  assert.equal(normalizeSettings({ autoImages: true }).autoImages, true, "a stored choice is kept");
+});
+
 test("updateStorySettings merges: undefined keeps, empty string clears", () => {
   let saved = updateStorySettings(campaign.id, { customApiKey: "sk-table", proseSize: "large" });
   assert.equal(saved.customApiKey, "sk-table");

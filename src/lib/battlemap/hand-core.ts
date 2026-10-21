@@ -25,7 +25,10 @@ export type HandCardType = "attack" | "rider" | "spell" | "control" | "mend" | "
 export type HandTarget = "enemy" | "ally" | "self" | "none";
 export type BasicActionId =
   | "dodge" | "dash" | "disengage" | "help" | "hide" | "ready" | "grapple" | "shove" | "use-object" | "end-turn"
-  | "search" | "escape" | "stand-up";
+  | "search" | "escape" | "stand-up"
+  // The lead's Skip turn (skipTurnCard, hand.ts): played through the floor
+  // route, never sent to the actions route as an intent.
+  | "skip-turn";
 
 // What the structured commit carries beside the sentence. An optional extra
 // field on the action body: a server that does not know it drops it. The
@@ -222,7 +225,7 @@ export type HandOptions = {
   trackAmmo?: boolean;
 };
 
-// The fan's seats, End turn's included (src/lib/battlemap/hand-layout.ts).
+// The fan's seats, every one the player's (src/lib/battlemap/hand-layout.ts).
 export { HAND_FAN_CAP } from "@/lib/battlemap/hand-layout";
 
 export function spellKey(name: string): string {

@@ -31,7 +31,7 @@ export function resolveActionCharacter({ sheets, userId, selectedId, characterId
     return { error: "Select that character before acting as them.", status: 409 };
   }
   if (!reaction && initiativeId && sheet.id !== initiativeId) {
-    return { error: "Wait for that character's turn in the initiative order. Use OOC for table talk.", status: 409 };
+    return { error: "Wait for that character's turn in the initiative order.", status: 409 };
   }
   return { sheet };
 }

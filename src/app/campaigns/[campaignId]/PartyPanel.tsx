@@ -1028,14 +1028,9 @@ export function PartyPanel({
               <TakeOverAllyButton campaignId={campaignId} sheet={sheet} />
             ) : null}
 
-            {/* An ally taken over and never saved has no library row and may
-                have a blank brief (a hand-built companion's is its backstory);
-                the missing row marks it as well. */}
-            {campaignId &&
-            mine &&
-            !sheet.isCompanion &&
-            myOwn.length > 1 &&
-            (sheet.personality || sheet.libraryRole === "companion" || !sheet.libraryCharacterId) ? (
+            {/* An ally taken over keeps its brief: the take-over gives a
+                blank one a brief of its own (takeOverCompanionSheet). */}
+            {campaignId && mine && !sheet.isCompanion && myOwn.length > 1 && (sheet.personality || sheet.libraryRole === "companion") ? (
               <HandBackButton campaignId={campaignId} sheet={sheet} />
             ) : null}
 
@@ -1055,10 +1050,10 @@ export function PartyPanel({
                     <DiceSourcesButton />
                   </>
                 ) : null}
-                {/* Every character of one's own can be saved. An ally taken
-                    over before it was ever saved has no row yet; its first
-                    save links or files one (sheet/sync). */}
-                {mine && !sheet.isCompanion ? (
+                {/* An ally taken over before it was ever saved has no row yet
+                    but keeps its brief; its first save links or files one
+                    (sheet/sync). */}
+                {mine && (sheet.libraryCharacterId || (!sheet.isCompanion && sheet.personality.trim())) ? (
                   <SaveToLibraryButton campaignId={sheet.campaignId} sheetId={sheet.id} />
                 ) : null}
                 {sheet.isCompanion && steersStory && sheet.companionKind !== "guest" && !sheet.summon ? (

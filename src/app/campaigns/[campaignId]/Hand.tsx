@@ -2,7 +2,7 @@
 
 import { selectedCharacter, initiativeCharacter } from "@/lib/player-characters";
 
-import { ChevronDown, CircleHelp, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties, Dispatch, RefObject, SetStateAction } from "react";
 import { cn } from "@/lib/cn";
@@ -20,9 +20,10 @@ import { HandReactPrompt } from "@/app/campaigns/[campaignId]/HandReactPrompt";
 import { HandPips } from "@/app/campaigns/[campaignId]/HandPips";
 import { handTargets } from "@/app/campaigns/[campaignId]/handTargets";
 import { holdPendingCards, useHandChoices, useHandPending } from "@/app/campaigns/[campaignId]/useHandChoices";
-import { deriveHand, waitingHand, type HandCard } from "@/lib/battlemap/hand";
+import { SKIP_TURN_ID, deriveHand, skipTurnCard, waitingHand, type HandCard } from "@/lib/battlemap/hand";
 import { arrangeHand, isUrgentCard, seatPicked, startingLayout } from "@/lib/battlemap/hand-layout";
 import {
+  COMPOSER_SENT_EVENT,
   HAND_TARGET_EVENT,
   composeSentence,
   intentBody,
@@ -47,6 +48,10 @@ import type { CharacterSheet } from "@/lib/schemas/sheet";
 // the box is always there to type in instead.
 
 const COLLAPSED_KEY = "odm:hand-collapsed";
+// Set when the hand put itself away after a card was sent (build 24), so it
+// comes back out on this player's next turn; a hand put away by its own
+// button stays away until it is opened.
+const AUTO_COLLAPSED_KEY = "odm:hand-auto-collapsed";
 const STORE_EVENT = "odm-hand-store";
 // The committed card's beats, in step with hand.css and hand-motion.css: the
 // card has left the fan by LEFT_MS, and its face-up copy has played, waited
@@ -97,6 +102,7 @@ function HandInner({
   trackAmmo,
   leaving,
   edges,
+  steersStory = false,
 }: {
   campaignId: string;
   sheets: CharacterSheet[];
@@ -117,6 +123,8 @@ function HandInner({
   // The board's verdict from this character to each enemy (cover, flanking),
   // keyed by enemy id; absent off the map.
   edges?: Record<string, TargetEdge>;
+  // Whoever runs the story: their hand holds Skip turn on others' turns.
+  steersStory?: boolean;
 }) {
   const sheet = useMemo(
     () => initiativeCharacter(sheets, meUserId, encounter.acting?.id) ?? selectedCharacter(sheets, meUserId, activeSheetId),
@@ -144,10 +152,15 @@ function HandInner({
     () => (sheet && turn ? reactionCards(sheet, turn, hits ?? [], sheets) : []),
     [sheet, turn, hits, sheets],
   );
+  // The lead skips a turn under way from the hand now the round banner is
+  // gone (build 24): only on somebody else's turn, since their own ends with
+  // the End button beside the pips.
+  const skips = steersStory && floor.mode === "initiative" && !myTurn;
   const cards = useMemo(() => {
     if (!sheet || !turn) return [];
-    return holdPendingCards(withReactions(reactions, deriveHand(sheet, turn, { spells, trackAmmo })), waiting);
-  }, [sheet, turn, reactions, spells, trackAmmo, waiting]);
+    const dealt = holdPendingCards(withReactions(reactions, deriveHand(sheet, turn, { spells, trackAmmo })), waiting);
+    return skips ? [...dealt, skipTurnCard(currentName ?? "")] : dealt;
+  }, [sheet, turn, reactions, spells, trackAmmo, waiting, skips, currentName]);
 
   // Where each card sits, the fan or "more": the player's own arrangement
   // for this character when they have made one (issue 231).
@@ -163,6 +176,10 @@ function HandInner({
   const [folding, setFolding] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [ending, setEnding] = useState(false);
+  // A card's sentence went to the message box to be finished there: when the
+  // box sends it, the hand puts itself away as it does after a card is sent.
+  const composedRef = useRef(false);
   const [notice, setNotice] = useState("");
   const noticeRef = useRef<HTMLParagraphElement>(null);
 
@@ -268,6 +285,7 @@ function HandInner({
     (text: string) => {
       onKindChange("do");
       setInput(text);
+      composedRef.current = true;
       clearAim();
       // After the box has the text, put the caret where the blank is.
       window.setTimeout(() => {
@@ -282,6 +300,69 @@ function HandInner({
     [onKindChange, setInput, clearAim, composerRef],
   );
 
+  // After a card is sent the hand puts itself away so the DM's answer can be
+  // read (build 24): once the played card has had its beat, the fan folds as
+  // it does for the chevron, and the turn's pips and End stay in view. It
+  // comes back out on this player's next turn.
+  const putAway = useCallback(() => {
+    composedRef.current = false;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const close = () => {
+      writeFlag(AUTO_COLLAPSED_KEY, true);
+      writeFlag(COLLAPSED_KEY, true);
+      setFolding(false);
+    };
+    if (still) {
+      close();
+      return;
+    }
+    setFolding(true);
+    window.setTimeout(close, FOLD_MS);
+  }, []);
+
+  // The sentence a card left in the message box, sent from there.
+  useEffect(() => {
+    const onSent = () => {
+      if (composedRef.current) putAway();
+    };
+    window.addEventListener(COMPOSER_SENT_EVENT, onSent);
+    return () => window.removeEventListener(COMPOSER_SENT_EVENT, onSent);
+  }, [putAway]);
+
+  // A new turn in the order (round and seat) that is this player's: a hand
+  // that put itself away comes back out. One its player put away stays so.
+  const turnKey = `${encounter.round}:${encounter.turnIndex}`;
+  const lastTurnKey = useRef("");
+  useEffect(() => {
+    if (turnKey === lastTurnKey.current) return;
+    lastTurnKey.current = turnKey;
+    composedRef.current = false;
+    if (myTurn && readFlag(AUTO_COLLAPSED_KEY)) {
+      writeFlag(AUTO_COLLAPSED_KEY, false);
+      writeFlag(COLLAPSED_KEY, false);
+    }
+  }, [turnKey, myTurn]);
+
+  // The one-tap End beside the pips: the end-turn route the card used.
+  const endTurn = useCallback(async () => {
+    if (ending) return;
+    setEnding(true);
+    setNotice("");
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}/encounter/end-turn`, { method: "POST" });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string };
+        say(data.error || "The turn could not be ended.");
+      } else {
+        clearAim();
+      }
+    } catch {
+      say("Could not reach the server.");
+    } finally {
+      setEnding(false);
+    }
+  }, [ending, campaignId, say, clearAim]);
+
   const commit = useCallback(async () => {
     if (!picked || !sheet || sending) return;
     if (picked.compose) {
@@ -291,12 +372,13 @@ function HandInner({
     setSending(true);
     setNotice("");
     try {
-      const ending = picked.intent.card === "basic" && picked.intent.action === "end-turn";
-      // End turn is the floor banner's own route; everything else is the
-      // composer's POST with the card riding along as an optional field.
+      const skipping = picked.id === SKIP_TURN_ID;
+      // Skip turn is the lead's floor route, as the Lead panel's is;
+      // everything else is the composer's POST with the card riding along as
+      // an optional field.
       const post = (concentrationAck?: ConcentrationSwap) =>
-        ending
-          ? fetch(`/api/campaigns/${campaignId}/encounter/end-turn`, { method: "POST" })
+        skipping
+          ? fetch(`/api/campaigns/${campaignId}/floor`, { method: "POST" })
           : fetch(`/api/campaigns/${campaignId}/actions`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -334,7 +416,7 @@ function HandInner({
       }
       // Nothing is marked spent: the engine's count arrives with the
       // encounter. Until it moves, the same cost waits on this card.
-      if (!ending) {
+      if (!skipping) {
         setPending({
           cost: picked.cost,
           attack: picked.intent.card === "attack" || picked.intent.card === "rider",
@@ -349,13 +431,17 @@ function HandInner({
       window.setTimeout(clearAim, LEFT_MS);
       // A second card played inside the first one's beat takes the stage over.
       window.clearTimeout(playedTimer.current);
-      playedTimer.current = window.setTimeout(() => setPlayed(null), PLAYED_MS);
+      playedTimer.current = window.setTimeout(() => {
+        setPlayed(null);
+        // Skipping somebody else's turn leaves the hand where it was.
+        if (!skipping) putAway();
+      }, PLAYED_MS);
     } catch {
       say("Could not reach the server.");
     } finally {
       setSending(false);
     }
-  }, [picked, sheet, sending, sentence, campaignId, aim, attachedRiders, choices, signature, setPending, boardName, setInput, clearAim, say, toComposer]);
+  }, [picked, sheet, sending, sentence, campaignId, aim, attachedRiders, choices, signature, setPending, boardName, setInput, clearAim, say, toComposer, putAway]);
 
   if (!sheet || !turn) return null;
 
@@ -369,7 +455,7 @@ function HandInner({
   const { fan, more, displaced, fresh } = arrangement;
   const urgent = fan.filter(isUrgentCard);
   // A card chosen from behind the spine takes a seat for the moment: a free
-  // one, else the last before End turn. The arrangement is not changed by it.
+  // one, else the last. The arrangement is not changed by it.
   const shown = seatPicked(fan, picked && more.includes(picked) ? picked : null);
   const middle = (shown.length - 1) / 2;
   // The mockup's 4.4 degrees between neighbours, eased off as the hand fills
@@ -405,19 +491,21 @@ function HandInner({
         </span>
         <span className="ml-auto flex items-center gap-1">
           <HandPips pips={pips} flurryStrikes={turn.flurryStrikes} />
-          <Tooltip content="How the hand works">
-            <button
-              type="button"
-              onClick={() => {
-                if (collapsed) writeFlag(COLLAPSED_KEY, false);
-                setTutorialAsked(true);
-              }}
-              aria-label="How the hand works"
-              className="flex size-9 items-center justify-center rounded-lg text-stone-500 hover:text-amber-200 sm:size-7"
-            >
-              <CircleHelp className="size-4" />
-            </button>
-          </Tooltip>
+          {/* End your turn in one tap, beside what the turn has left (build
+              24): End turn was a card, which took a seat and a second tap. */}
+          {myTurn ? (
+            <Tooltip content="Done with your action, movement and bonus action? End your turn.">
+              <button
+                type="button"
+                onClick={() => void endTurn()}
+                disabled={ending}
+                aria-busy={ending || undefined}
+                className="hand-end motion-press rounded-full border border-amber-500/60 bg-amber-500/15 px-2.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-amber-100 hover:bg-amber-500/25 disabled:opacity-50"
+              >
+                End
+              </button>
+            </Tooltip>
+          ) : null}
           <Tooltip content="Customize your hand: choose which cards stay in it">
             <button
               type="button"
@@ -438,6 +526,8 @@ function HandInner({
               type="button"
               onClick={() => {
                 clearAim();
+                // Opened or put away by hand: the player's choice from here.
+                writeFlag(AUTO_COLLAPSED_KEY, false);
                 const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
                 if (collapsed || still) {
                   writeFlag(COLLAPSED_KEY, !collapsed);
@@ -543,7 +633,8 @@ function HandInner({
               onRefused={say}
               // A reaction is taken on anyone's turn: the initiative floor
               // does not hold it (the engine's canAct judges it instead).
-              blocked={inputBlocked && picked.cost !== "reaction" ? blockedReason : null}
+              // Nor does it hold the lead's Skip turn, made for others' turns.
+              blocked={inputBlocked && picked.cost !== "reaction" && picked.id !== SKIP_TURN_ID ? blockedReason : null}
               onBack={clearAim}
               onEdit={() => toComposer(sentence)}
               onCommit={() => void commit()}
@@ -583,6 +674,14 @@ function HandInner({
               onDone={() => {
                 setArranging(false);
                 if (!more.length) setMoreOpen(false);
+              }}
+              // "How the hand works" lives here now, off the pips' row.
+              onHelp={() => {
+                setArranging(false);
+                setMoreOpen(false);
+                if (collapsed) writeFlag(COLLAPSED_KEY, false);
+                writeFlag(AUTO_COLLAPSED_KEY, false);
+                setTutorialAsked(true);
               }}
             />
           ) : null

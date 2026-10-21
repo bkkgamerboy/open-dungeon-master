@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleHelp } from "lucide-react";
 import { useRef, useState, type CSSProperties } from "react";
 import { GameIcon } from "@/components/ui/GameIcon";
 import { cn } from "@/lib/cn";
@@ -31,6 +31,7 @@ export function HandArrange({
   onChange,
   onReset,
   onDone,
+  onHelp,
 }: {
   // Every card in the hand now, in the hand's own order.
   cards: HandCard[];
@@ -46,6 +47,8 @@ export function HandArrange({
   onChange: (layout: HandLayout) => Promise<string | null>;
   onReset: () => Promise<string | null>;
   onDone: () => void;
+  // The hand's own walkthrough, moved here from the pips' row (build 24).
+  onHelp?: () => void;
 }) {
   const [notice, setNotice] = useState("");
   const [moved, setMoved] = useState<{ id: string; seq: number } | null>(null);
@@ -53,7 +56,7 @@ export function HandArrange({
   const byId = new Map(cards.map((card) => [card.id, card]));
   const inHand = working.fan.map((id) => byId.get(id)).filter((card): card is HandCard => Boolean(card));
   const chosen = new Set(working.fan);
-  const inMore = cards.filter((card) => !chosen.has(card.id) && card.id !== "basic:end-turn" && !urgent.includes(card));
+  const inMore = cards.filter((card) => !chosen.has(card.id) && !urgent.includes(card));
   const missing = missingFromHand(working, cards).length;
   const freshIds = new Set(fresh.map((card) => card.id));
   const used = working.fan.length;
@@ -162,7 +165,7 @@ export function HandArrange({
           ))}
         </span>
         <span className="text-xs text-stone-300">
-          {used} of {HAND_SEATS} seats chosen. End turn keeps the ninth.
+          {used} of {HAND_SEATS} seats chosen. End your turn with End, beside the pips.
         </span>
       </div>
       {urgent.length ? (
@@ -193,7 +196,7 @@ export function HandArrange({
         {inHand.length ? (
           <ul className="flex flex-col gap-1.5">{inHand.map((card, index) => row(card, index, "hand"))}</ul>
         ) : (
-          <p className="text-xs text-stone-500">No cards chosen: only End turn sits in the hand. Add some below.</p>
+          <p className="text-xs text-stone-500">No cards chosen yet. Add some below.</p>
         )}
         <h3 className="mb-1.5 mt-4 font-display text-[11px] uppercase tracking-[0.2em] text-stone-400">In More</h3>
         {inMore.length ? (
@@ -221,6 +224,11 @@ export function HandArrange({
         ) : (
           <span className="text-xs text-stone-500">Automatic until you change a card.</span>
         )}
+        {onHelp ? (
+          <button type="button" onClick={onHelp} className="hand-arrange-move motion-press ml-auto inline-flex items-center gap-1.5">
+            <CircleHelp className="size-3.5" /> How the hand works
+          </button>
+        ) : null}
       </div>
     </div>
   );

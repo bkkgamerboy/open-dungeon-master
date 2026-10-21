@@ -20,7 +20,7 @@ const layoutSchema = z.object({
     .object({
       fan: z
         .array(z.string().min(1).max(160))
-        .max(HAND_SEATS, `A hand holds ${HAND_SEATS} chosen cards; End turn keeps the ninth seat. Move a card to More first.`),
+        .max(HAND_SEATS, `A hand holds ${HAND_SEATS} chosen cards. Move a card to More first.`),
       known: z.array(z.string().min(1).max(160)).max(240).default([]),
     })
     .nullable(),

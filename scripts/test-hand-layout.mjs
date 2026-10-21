@@ -6,6 +6,9 @@
 // seat for the moment without erasing the choice, lost cards leave no broken
 // seat and gained ones are marked, and the layout is saved per character
 // through the real route (another player's or a companion's is refused).
+// Since build 24 End turn is no card (the End button beside the pips ends
+// the turn), so all nine seats are the player's, and the lead's Skip turn,
+// dealt on others' turns, takes a seat first while it is there.
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
@@ -21,7 +24,7 @@ process.chdir(dir);
 
 register("./lib/register-routes.mjs", import.meta.url);
 
-const { deriveHand, FRESH_TURN, HAND_FAN_CAP } = await import("../src/lib/battlemap/hand.ts");
+const { deriveHand, FRESH_TURN, HAND_FAN_CAP, skipTurnCard } = await import("../src/lib/battlemap/hand.ts");
 const {
   HAND_SEATS,
   addToHand,
@@ -99,7 +102,7 @@ await test("the fan follows the player's chosen cards and order; every other car
   const chosen = ["spell:hold person", "basic:dash", "spell:fire bolt"];
   const { fan, more, arranged } = arrangeHand(cards, { fan: chosen, known: ids(cards) });
   assert.equal(arranged, true);
-  assert.deepEqual(ids(fan), [...chosen, "basic:end-turn"]);
+  assert.deepEqual(ids(fan), chosen);
   assert.equal(fan.length + more.length, cards.length, "every card is reachable from the fan or More");
   assert.ok(more.every((entry) => !chosen.includes(entry.id)));
   // A chosen card keeps its own state: placement never makes one playable.
@@ -110,21 +113,21 @@ await test("the fan follows the player's chosen cards and order; every other car
 
 await test("adding past the last seat is refused in words and the selection stays as it was", () => {
   let layout = { fan: [], known: ids(cards) };
-  const seatable = cards.filter((entry) => entry.id !== "basic:end-turn");
+  assert.equal(card("basic:end-turn"), undefined, "End turn is not dealt as a card");
+  const seatable = cards;
   for (const entry of seatable.slice(0, HAND_SEATS)) {
     const next = addToHand(layout, entry);
     assert.ok("layout" in next);
     layout = next.layout;
   }
   assert.equal(layout.fan.length, HAND_SEATS);
-  assert.equal(HAND_SEATS, HAND_FAN_CAP - 1);
+  assert.equal(HAND_SEATS, HAND_FAN_CAP, "every seat in the fan is the player's");
   const extra = seatable[HAND_SEATS];
   const refused = addToHand(layout, extra);
   assert.ok("error" in refused);
   assert.match(refused.error, /full/);
   assert.match(refused.error, /Move a card to More first/);
   assert.equal(layout.fan.length, HAND_SEATS, "nothing was pushed out");
-  assert.ok("error" in addToHand({ fan: [], known: [] }, card("basic:end-turn")), "End turn keeps its own seat");
   // Moving one out makes room, and the order can be changed.
   const freed = removeFromHand(layout, layout.fan[0]);
   assert.ok("layout" in addToHand(freed, extra));
@@ -135,7 +138,7 @@ await test("adding past the last seat is refused in words and the selection stay
 
 await test("Escape or Stand up takes a seat for now without erasing the choice", () => {
   const prone = deal(sheet({ conditions: ["prone"] }));
-  const full = prone.filter((entry) => entry.id !== "basic:end-turn" && entry.id !== "basic:stand-up").slice(0, HAND_SEATS);
+  const full = prone.filter((entry) => entry.id !== "basic:stand-up").slice(0, HAND_SEATS);
   const layout = { fan: ids(full), known: ids(prone) };
   const { fan, displaced } = arrangeHand(prone, layout);
   assert.equal(fan[0].id, "basic:stand-up");
@@ -152,7 +155,7 @@ await test("a lost card leaves no broken seat and a gained one is marked new", (
   // Detect Magic no longer prepared; Shield newly prepared.
   const changed = deal(sheet({ spellcasting: { ...sheet().spellcasting, prepared: ["Fire Bolt", "Healing Word", "Hold Person", "Shield"] } }));
   const { fan, fresh } = arrangeHand(changed, layout);
-  assert.deepEqual(ids(fan), ["spell:hold person", "basic:dash", "basic:end-turn"]);
+  assert.deepEqual(ids(fan), ["spell:hold person", "basic:dash"]);
   assert.deepEqual(missingFromHand(layout, changed), ["spell:detect magic"]);
   assert.ok(ids(fresh).includes("spell:shield"));
   // Arranging again remembers everything held now, so nothing reads as new.
@@ -162,18 +165,34 @@ await test("a lost card leaves no broken seat and a gained one is marked new", (
 
 await test("starting to arrange begins from the fan the player sees", () => {
   const start = startingLayout(cards, null);
-  assert.deepEqual(start.fan, ids(splitHand(cards).fan).filter((id) => id !== "basic:end-turn"));
+  assert.deepEqual(start.fan, ids(splitHand(cards).fan));
 });
 
-await test("a card picked from More takes a free seat, or the last before End turn", () => {
+await test("a card picked from More takes a free seat, or the last one", () => {
   const few = arrangeHand(cards, { fan: ["basic:dash"], known: ids(cards) });
   const extra = few.more[0];
-  assert.deepEqual(ids(seatPicked(few.fan, extra)), ["basic:dash", extra.id, "basic:end-turn"]);
+  assert.deepEqual(ids(seatPicked(few.fan, extra)), ["basic:dash", extra.id]);
   const auto = splitHand(cards);
   const shown = seatPicked(auto.fan, auto.more[0]);
   assert.equal(shown.length, HAND_FAN_CAP);
-  assert.equal(shown[HAND_FAN_CAP - 2].id, auto.more[0].id);
-  assert.equal(shown[HAND_FAN_CAP - 1].id, "basic:end-turn");
+  assert.equal(shown[HAND_FAN_CAP - 1].id, auto.more[0].id);
+  assert.deepEqual(ids(shown.slice(0, -1)), ids(auto.fan.slice(0, -1)), "the rest keep their seats");
+});
+
+await test("the lead's Skip turn takes a seat first on another's turn, and the choice stays", () => {
+  const skip = skipTurnCard("Bruce");
+  assert.equal(skip.name, "Skip turn");
+  assert.equal(skip.disabled, null, "playable whoever's turn it is");
+  assert.match(skip.rules, /Bruce's turn/);
+  const full = cards.slice(0, HAND_SEATS);
+  const layout = { fan: ids(full), known: ids(cards) };
+  const { fan, displaced } = arrangeHand([...cards, skip], layout);
+  assert.equal(fan[0].id, "basic:skip-turn");
+  assert.equal(fan.length, HAND_FAN_CAP);
+  assert.deepEqual(ids(displaced), [full[full.length - 1].id]);
+  // The automatic hand seats it too, since every other card waits off-turn.
+  const waiting = cards.map((entry) => ({ ...entry, disabled: "It is Bruce's turn." }));
+  assert.ok(ids(splitHand([...waiting, skip]).fan).includes("basic:skip-turn"));
 });
 
 await test("a stored layout is read within bounds", () => {
@@ -182,7 +201,8 @@ await test("a stored layout is read within bounds", () => {
   const read = normalizeHandLayout({ fan: ["a:1", "a:1", "basic:end-turn", 7, "", ...Array.from({ length: 20 }, (_, i) => `b:${i}`)] });
   assert.equal(read.fan.length, HAND_SEATS);
   assert.equal(read.fan[0], "a:1");
-  assert.ok(!read.fan.includes("basic:end-turn"));
+  assert.equal(read.fan.filter((id) => id === "a:1").length, 1, "no card twice");
+  assert.ok(read.fan.every((id) => typeof id === "string" && id.length > 0));
 });
 
 // ---- the route ----

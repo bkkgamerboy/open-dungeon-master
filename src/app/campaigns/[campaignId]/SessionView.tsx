@@ -88,6 +88,8 @@ import { revealPane, useTableLayout, type LayoutSeat } from "@/app/campaigns/[ca
 import { poppedTabs, tabPane } from "@/lib/table-layout";
 import { PanelLoading, panels, preloadSidePanels } from "@/app/campaigns/[campaignId]/side-panel-loaders";
 import { preloadable } from "@/lib/preloadable";
+import { COMPOSER_SENT_EVENT } from "@/lib/battlemap/hand-play";
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 
 // The level-up dialog carries the class feature and resource tables of the
 // whole SRD; it loads the first time a character actually levels rather
@@ -581,6 +583,10 @@ export function SessionView({
     ],
   );
 
+  // The phone's keyboard, open, marks the page so the message box keeps the
+  // room it needs (world.css, html[data-keyboard="open"]).
+  useKeyboardOpen();
+
   const releaseFloor = useCallback(async () => {
     await fetch(`/api/campaigns/${campaignId}/floor`, { method: "POST" });
   }, [campaignId]);
@@ -636,6 +642,8 @@ export function SessionView({
           }
         }
         setInput("");
+        // A hand whose card filled the box puts itself away now (Hand.tsx).
+        if (route === "actions") window.dispatchEvent(new Event(COMPOSER_SENT_EVENT));
       } catch {
         setError("Could not reach the server.");
       } finally {

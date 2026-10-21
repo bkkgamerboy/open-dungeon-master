@@ -349,11 +349,13 @@ test("limited-use features become cards with their uses and their cost", () => {
 
 // ---- the basics, and what stops a hand ----
 
-test("every character holds the eleven basic actions, and Escape while grappled", () => {
+test("every character holds the ten basic actions, and Escape while grappled", () => {
   const cards = deriveHand(sheet());
-  for (const id of ["dodge", "dash", "disengage", "help", "hide", "search", "ready", "grapple", "shove", "use-object", "end-turn"]) {
+  for (const id of ["dodge", "dash", "disengage", "help", "hide", "search", "ready", "grapple", "shove", "use-object"]) {
     assert.ok(byId(cards, `basic:${id}`), id);
   }
+  // End turn is the End button beside the pips now (build 24), not a card.
+  assert.equal(byId(cards, "basic:end-turn"), undefined);
   assert.equal(byId(cards, "basic:grapple").dice, "Athletics +5");
   // Ready asks for its trigger in the aim bar; the engine refuses Ready without one.
   assert.equal(byId(cards, "basic:ready").asks, "trigger");
@@ -376,11 +378,10 @@ test("Cunning Action offers Dash, Disengage and Hide as bonus actions, before th
   assert.equal(byId(deriveHand(sheet(), turn), "basic:dash:bonus"), undefined);
 });
 
-test("a condition that forbids acting stops every card but End turn", () => {
+test("a condition that forbids acting stops every card", () => {
   const cards = deriveHand(sheet({ equipment: [item("Longsword")], conditions: ["Stunned"] }));
   for (const card of cards) {
-    if (card.id === "basic:end-turn") assert.equal(card.disabled, null);
-    else assert.match(card.disabled, /is stunned and cannot/, card.id);
+    assert.match(card.disabled, /is stunned and cannot/, card.id);
   }
   const grappled = deriveHand(sheet({ conditions: ["grappled"] }));
   assert.match(byId(grappled, "basic:dash").disabled, /speed is 0/);
@@ -489,14 +490,14 @@ test("a target tapped on the board arrives as the HUD's sentence", () => {
 
 // ---- the cap ----
 
-test("nine cards fan out, the rest wait behind the spine, and End turn never leaves", () => {
+test("nine cards fan out and the rest wait behind the spine", () => {
   const full = caster({ equipment: [item("Quarterstaff"), item("Dagger")] });
   const cards = deriveHand(full, FRESH_TURN, { spells: FACTS });
   assert.ok(cards.length > HAND_FAN_CAP);
   const { fan, more } = splitHand(cards);
   assert.equal(fan.length, HAND_FAN_CAP);
   assert.equal(fan.length + more.length, cards.length);
-  assert.equal(fan[fan.length - 1].id, "basic:end-turn");
+  assert.ok(!fan.some((card) => card.id === "basic:end-turn"), "End turn holds no seat");
   // Attacks, then spells by level, then the basics.
   const order = cards.map((card) => card.intent.card);
   assert.ok(order.indexOf("attack") < order.indexOf("spell"));

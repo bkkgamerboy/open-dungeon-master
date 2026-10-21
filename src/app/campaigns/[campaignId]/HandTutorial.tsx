@@ -6,7 +6,8 @@ import { ui } from "@/lib/ui";
 
 // The first fight's two-row card (docs/visual-overhaul-plan.md 5.7): play a
 // card, or type your move. Shown once per account through the tours' record
-// (src/lib/tours/tour-store.ts), and brought back by the Hand's question mark.
+// (src/lib/tours/tour-store.ts), and brought back by "How the hand works" in the
+// customise sheet.
 export { HAND_TUTORIAL_ID } from "@/lib/tours/registry";
 
 const ROWS = [

@@ -278,6 +278,8 @@ export function composeSentence(
       return `I use an object${bonus}: `;
     case "end-turn":
       return "I end my turn.";
+    case "skip-turn":
+      return "The lead skips the turn.";
     case "stand-up":
       return "I stand up.";
   }
@@ -422,6 +424,9 @@ export function targetFromComposedText(text: string, names: string[]): string | 
 // announces the aim, and listens for a pick by tracker id or by name.
 export const HAND_AIM_EVENT = "odm:hand-aim";
 export const HAND_TARGET_EVENT = "odm:hand-target";
+// The message box sent a player's action (SessionView's submit): a hand whose
+// card filled the box puts itself away so the DM's answer can be read.
+export const COMPOSER_SENT_EVENT = "odm:composer-sent";
 export type HandAimDetail = {
   active: boolean;
   cardId: string | null;

@@ -2,7 +2,9 @@
 // takes the screen, close up, its chrome around it rather than over it, and
 // a tap on your figure raises the actions in a sheet under the board, not a
 // wheel across it. On a wider screen nothing of that shows: the turn order
-// and the wheel are on the board as they were.
+// and the wheel are on the board as they were. Since build 24 the close-up
+// centres exactly on whoever is up, even Tavi at (2, 2) by the map's corner,
+// with the dark frame showing past the edge.
 import { check, eventually, sleep } from "../lib.mjs";
 
 const figure = (page, root, name) =>
@@ -46,6 +48,17 @@ export default {
       check((await page.locator(`${root}[data-compact-turns]`).count()) === 1, "the turn order is one row above the board");
       check((await page.locator(`${root}[aria-label="Zoom in"]`).locator("visible=true").count()) === 0, "no zoom buttons over the board");
       check((await page.getByRole("button", { name: /^End turn$/ }).locator("visible=true").count()) === 1, "End turn is in the strip");
+      // Tavi's turn: his figure sits in the middle of the board, not off in
+      // the corner the map's edge used to hold him to.
+      const offCentre = async () => {
+        const frame = await board.boundingBox();
+        const figureBox = await page.locator(`${root}[data-token-id="${tavi}"]`).first().boundingBox();
+        if (!frame || !figureBox) return Infinity;
+        const dx = figureBox.x + figureBox.width / 2 - (frame.x + frame.width / 2);
+        const dy = figureBox.y + figureBox.height / 2 - (frame.y + frame.height / 2);
+        return Math.hypot(dx, dy) / Math.max(1, figureBox.width);
+      };
+      await eventually(async () => (await offCentre()) < 0.6, { timeoutMs: 8_000, label: "Tavi centred on the board" });
       await t.shot("board");
 
       await tapFigure(t, tavi);

@@ -59,19 +59,20 @@ export function composerGate({
       : [];
   // The opening narration gets the table's attention. A question about it is
   // exactly the kind of thing someone wants to ask while it plays, and the
-  // Ask strip is never blocked, so this only has to spare OOC.
+  // Ask strip is never blocked, so this only has to spare OOC (the DM seat's;
+  // a player has no OOC pill since build 24).
   const narrationBlocked = openingNarrationPlaying && kind !== "ooc";
   const inputBlocked = floorBlocked || holdBlocked || initiativeBlocked || narrationBlocked;
   const placeholder = narrationBlocked
-    ? "The Dungeon Master is setting the scene... (OOC still open)"
+    ? "The Dungeon Master is setting the scene..."
     : holdBlocked
       ? floor.mode === "hold" && floor.next.mode === "initiative" && enemyTurns
-        ? "The enemies are taking their turns... (OOC still open)"
-        : "The party lead has the floor held for discussion... (OOC still open)"
+        ? "The enemies are taking their turns..."
+        : "The party lead has the floor held for discussion..."
       : initiativeBlocked
-        ? `${floor.mode === "initiative" ? floor.currentName : "Another hero"}'s turn in combat... (OOC still open)`
+        ? `${floor.mode === "initiative" ? floor.currentName : "Another hero"}'s turn in combat...`
         : floorBlocked
-          ? `Waiting on ${spotlighted.map((sheet) => sheet.name).join(", ")}... (OOC still open)`
+          ? `Waiting on ${spotlighted.map((sheet) => sheet.name).join(", ")}...`
           : kind === "do"
             ? `What does ${myName} do?`
             : kind === "say"

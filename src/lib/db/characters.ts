@@ -510,15 +510,21 @@ function writeProgress(sheet: CharacterSheet, character: LibraryCharacter): Libr
 // ---- companions ----
 
 // An ally its player took over ("Play this ally yourself") is one of their
-// own characters now, owned by them and no longer marked a companion, and
-// one that was never saved has no library row. That is the whole test: every
-// door a player's own hero comes in by (the sheet route, a pregen, the
-// library's own join) files it in their library first, so a player's
-// character with no row came in by a companion door and was taken over. The
-// personality brief is no help here: a companion built by hand carries its
-// backstory as its brief, and that may be blank.
-export function isUnsavedTakenOverAlly(sheet: Pick<CharacterSheet, "isCompanion" | "libraryCharacterId" | "userId">): boolean {
-  return !sheet.isCompanion && !sheet.libraryCharacterId && !isCompanionUserId(sheet.userId);
+// own characters now, owned by them and no longer marked a companion. It
+// keeps the personality brief the DM played it from, and only the companion
+// doors write one (the take-over gives a blank one a brief of its own), so
+// the brief is what marks it. One with no library row was never saved. A
+// player's own hero with no row (a sheet from before every hero was filed)
+// has no brief and is not taken for an ally.
+export function isUnsavedTakenOverAlly(
+  sheet: Pick<CharacterSheet, "isCompanion" | "libraryCharacterId" | "userId" | "personality">,
+): boolean {
+  return (
+    !sheet.isCompanion &&
+    !sheet.libraryCharacterId &&
+    !isCompanionUserId(sheet.userId) &&
+    sheet.personality.trim() !== ""
+  );
 }
 
 export type CompanionSave = {

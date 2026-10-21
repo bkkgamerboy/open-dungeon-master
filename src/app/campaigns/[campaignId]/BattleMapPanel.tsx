@@ -316,22 +316,13 @@ export function BattleMapPanel({
   // its wheel of rulings all live on the board.
   const compact = useCompactBoard() && !canDirect;
   const ownToken = view.myTokenId ? tokensById.get(view.myTokenId) : undefined;
-  // Whoever is up and the nearest enemy they can see, both in frame: the
-  // view rests on the point between them when they are close enough to
-  // share it, else on whoever is up.
-  const closeFocus = useMemo(() => {
-    const at = turnTile ?? (ownToken ? { x: ownToken.x, y: ownToken.y } : null);
-    if (!at) {
-      return null;
-    }
-    const foe = view.tokens
-      .filter((token) => token.kind === "enemy" && !token.hidden)
-      .map((token) => ({ token, gap: Math.max(Math.abs(token.x - at.x), Math.abs(token.y - at.y)) }))
-      .sort((a, b) => a.gap - b.gap)[0];
-    return foe && foe.gap <= COMPACT_TILES_ACROSS - 2
-      ? { x: (at.x + foe.token.x) / 2, y: (at.y + foe.token.y) / 2 }
-      : at;
-  }, [turnTile, ownToken, view.tokens]);
+  // The view rests exactly on whoever is up (build 24), on your own figure
+  // while exploring: the player looks at the one who moves, not at a point
+  // between it and the nearest enemy, which put the figure off in a corner.
+  const closeFocus = useMemo(
+    () => turnTile ?? (ownToken ? { x: ownToken.x, y: ownToken.y } : null),
+    [turnTile, ownToken],
+  );
   const { frameRef, attachFrame, ...cam } = useBoardCamera(view.width, view.height, {
     followTurn: followTurn && !canDirect,
     turnTile,
