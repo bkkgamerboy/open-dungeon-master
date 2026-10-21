@@ -442,6 +442,35 @@ for (const user of [world.owner, player, ...tourAccounts]) {
 // The lead runs the server too, for the admin settings (issue 255).
 setUserAdmin(world.owner.id, true);
 
+// A table where the lead took over an ally the DM played, built by hand with
+// a blank brief and never saved (build 23): its card is the lead's own and
+// must still offer Save to library. Its own table, so no other scenario's
+// party changes.
+const ALLY_TITLE = "Ally Road";
+const allyRoad = campaigns.createCampaign(world.owner.id, {
+  title: ALLY_TITLE,
+  description: "A drover's road, the party's ally now the lead's to play.",
+  theme: "high-fantasy",
+  maxPlayers: 6,
+  startingLevel: 3,
+  difficulty: "normal",
+  gameSettings: { ttsEnabled: false, companions: "full", maxCompanions: 3, multiCharacter: "all_active" },
+});
+campaigns.setCampaignStatus(allyRoad.id, "active");
+const pell = sheets.createSheet(allyRoad.id, world.owner.id, 3, heroInput({ name: "Pell Swiftfoot", class: "rogue", level: 3 }));
+const { createCompanionUser } = await import("../../src/lib/db/users.ts");
+const garrickBot = createCompanionUser("Garrick Thorn");
+const garrick = sheets.createSheet(allyRoad.id, garrickBot.id, 3, heroInput({ name: "Garrick Thorn", class: "fighter", level: 3 }));
+sheets.markSheetAsCompanion(garrick.id, "party", "");
+sheets.takeOverCompanionSheet(garrick.id, world.owner.id);
+messages.insertCampaignMessage({
+  campaignId: allyRoad.id,
+  seq: campaigns.allocateSeq(allyRoad.id),
+  authorType: "dm",
+  speech: [],
+  content: "The drovers' road runs on between the hedges, and Garrick walks at your side.",
+});
+
 const ids = {
   lead: world.owner.username,
   player: player.username,
@@ -476,10 +505,14 @@ const ids = {
   closing,
   longId: longRoad.id,
   longLast: LONG_LAST,
+  allyRoadId: allyRoad.id,
+  pell: pell.id,
+  garrick: garrick.id,
   // Every campaign a scenario opens, by id, for the app's home tiles.
   titles: {
     [world.campaignId]: TITLE,
     [longRoad.id]: LONG_TITLE,
+    [allyRoad.id]: ALLY_TITLE,
     [lobby.id]: LOBBY_TITLE,
     [quiet.id]: QUIET_TITLE,
     [prepared.id]: PREP_TITLE,

@@ -1,5 +1,13 @@
 import { isErrorResponse, requireMember } from "@/lib/campaign-api";
-import { getCharacterForUser, keepsLibraryLevel, syncProgressToLibrary } from "@/lib/db/characters";
+import {
+  getCharacterForUser,
+  isUnsavedTakenOverAlly,
+  keepsLibraryLevel,
+  saveCompanionToLibrary,
+  syncProgressToLibrary,
+} from "@/lib/db/characters";
+import { getSheetById } from "@/lib/db/sheets";
+import { publishPersisted } from "@/lib/events";
 import { ownSheetFor } from "@/lib/character-seat";
 
 export const runtime = "nodejs";
@@ -33,6 +41,21 @@ export async function POST(
     );
   }
   if (!sheet.libraryCharacterId) {
+    // An ally the player took over ("Play this ally yourself") may never have
+    // been saved: it is linked to the same-named companion in their library,
+    // or becomes a new one, as a companion's own card does.
+    if (isUnsavedTakenOverAlly(sheet)) {
+      const saved = saveCompanionToLibrary(sheet.id, context.user.id);
+      if ("error" in saved) {
+        return Response.json({ error: saved.error }, { status: 400 });
+      }
+      // The card learns its link, so the next press writes to the same row.
+      const linked = getSheetById(sheet.id);
+      if (linked) {
+        publishPersisted(campaignId, "sheet_updated", { sheet: linked });
+      }
+      return Response.json({ character: saved.character, keptLevel: saved.keptLevel, created: saved.created });
+    }
     return Response.json(
       { error: "This character is not linked to your library." },
       { status: 400 },

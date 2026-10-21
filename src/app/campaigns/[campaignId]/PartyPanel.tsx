@@ -1013,7 +1013,14 @@ export function PartyPanel({
               </KitButton>
             ) : null}
 
-            {campaignId && steersStory && !sheet.isCompanion && sheet.libraryRole === "companion" ? (
+            {/* An ally the lead took over is filed as a companion on purpose,
+                and its way back is Hand back, offered just below; this repair
+                is for a sheet that has no such way back. */}
+            {campaignId &&
+            steersStory &&
+            !sheet.isCompanion &&
+            sheet.libraryRole === "companion" &&
+            !(mine && myOwn.length > 1) ? (
               <HandToDmButton campaignId={campaignId} sheet={sheet} blocked={companionBlock} onOpenSettings={onOpenSettings} />
             ) : null}
 
@@ -1041,7 +1048,10 @@ export function PartyPanel({
                     <DiceSourcesButton />
                   </>
                 ) : null}
-                {mine && sheet.libraryCharacterId ? (
+                {/* Every character of one's own can be saved. An ally taken
+                    over before it was ever saved has no row yet; its first
+                    save links or files one (sheet/sync). */}
+                {mine && !sheet.isCompanion ? (
                   <SaveToLibraryButton campaignId={sheet.campaignId} sheetId={sheet.id} />
                 ) : null}
                 {sheet.isCompanion && steersStory && sheet.companionKind !== "guest" && !sheet.summon ? (

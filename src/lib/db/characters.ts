@@ -4,6 +4,7 @@ import { createSheet, getSheetById, getSheetForUser, linkSheetToLibrary, listShe
 import { adaptSheetToLevel } from "@/lib/characters/adapt";
 import { admitSheet } from "@/lib/characters/admit";
 import { getCampaignById } from "@/lib/db/campaigns";
+import { isCompanionUserId } from "@/lib/db/users";
 import { XP_THRESHOLDS, levelForXp } from "@/lib/srd";
 import { subclassExtrasFor } from "@/lib/db/subclass-extras";
 import { populateFeaturesForClasses } from "@/lib/srd/features";
@@ -508,6 +509,18 @@ function writeProgress(sheet: CharacterSheet, character: LibraryCharacter): Libr
 
 // ---- companions ----
 
+// An ally its player took over ("Play this ally yourself") is one of their
+// own characters now, owned by them and no longer marked a companion, and
+// one that was never saved has no library row. That is the whole test: every
+// door a player's own hero comes in by (the sheet route, a pregen, the
+// library's own join) files it in their library first, so a player's
+// character with no row came in by a companion door and was taken over. The
+// personality brief is no help here: a companion built by hand carries its
+// backstory as its brief, and that may be blank.
+export function isUnsavedTakenOverAlly(sheet: Pick<CharacterSheet, "isCompanion" | "libraryCharacterId" | "userId">): boolean {
+  return !sheet.isCompanion && !sheet.libraryCharacterId && !isCompanionUserId(sheet.userId);
+}
+
 export type CompanionSave = {
   character: LibraryCharacter;
   // A new library row, rather than progress written onto one already there.
@@ -523,9 +536,12 @@ export type CompanionSave = {
 // the row it was almost certainly brought in from, and linked to it; with no
 // match it becomes a new library companion at the level it plays at. The
 // link is what lets the campaign's end carry its progress home from then on.
+// An ally its player took over saves the same way, to its player's own
+// library, still filed as an ally the DM plays, so the next campaign can
+// bring it in as one and the player can take it over again.
 export function saveCompanionToLibrary(sheetId: string, userId: string): CompanionSave | { error: string } {
   const sheet = getSheetById(sheetId);
-  if (!sheet?.isCompanion) {
+  if (!sheet || !(sheet.isCompanion || (isUnsavedTakenOverAlly(sheet) && sheet.userId === userId))) {
     return { error: "That is not a companion." };
   }
   const linked = sheet.libraryCharacterId ? getCharacter(sheet.libraryCharacterId) : null;
@@ -557,22 +573,22 @@ export function saveCompanionToLibrary(sheetId: string, userId: string): Compani
 // A campaign's end: every copy with a library row writes home, companions
 // included, and a lasting companion with none is saved to the library of
 // whoever ran the story, so the allies who travelled the whole campaign
-// arrive at the next one as they left this. Guests, summons and the dead
-// stay behind: nobody wants a fallen ally's sheet waiting on the shelf.
+// arrive at the next one as they left this. An ally a player took over with
+// no row goes to that player's library the same way. Guests, summons and the
+// dead stay behind: nobody wants a fallen ally's sheet waiting on the shelf.
 export function carryPartyHome(campaignId: string, storyOwnerId: string | null): void {
   for (const sheet of listSheets(campaignId)) {
     if (sheet.libraryCharacterId) {
       syncProgressToLibrary(sheet.id);
       continue;
     }
-    if (
-      storyOwnerId &&
-      sheet.isCompanion &&
-      sheet.companionKind === "party" &&
-      !sheet.summon &&
-      !sheet.deathSaves?.dead
-    ) {
+    if (sheet.summon || sheet.deathSaves?.dead) {
+      continue;
+    }
+    if (storyOwnerId && sheet.isCompanion && sheet.companionKind === "party") {
       saveCompanionToLibrary(sheet.id, storyOwnerId);
+    } else if (isUnsavedTakenOverAlly(sheet)) {
+      saveCompanionToLibrary(sheet.id, sheet.userId);
     }
   }
 }
