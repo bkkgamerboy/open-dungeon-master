@@ -12,7 +12,7 @@ import {
   Swords,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { BattleMapGrid, type MapOverlay } from "@/app/campaigns/[campaignId]/BattleMapGrid";
 import {
   BoardToolRail,
@@ -69,7 +69,7 @@ import {
   TurnHud,
   type TurnHudBudget,
 } from "@/app/campaigns/[campaignId]/BoardChrome";
-import { IntentLayer } from "@/app/campaigns/[campaignId]/BoardIntent";
+import { IntentLayer, IntentToast } from "@/app/campaigns/[campaignId]/BoardIntent";
 import { BoardCameraControls, BoardKeyStrip, BoardOrderDialog, BoardOrderStrip, boardHintText, PlayAsStrip } from "@/app/campaigns/[campaignId]/BoardPanelParts";
 import type { StageToken } from "@/app/campaigns/[campaignId]/BoardStage";
 import type { TokenIntent } from "@/lib/battlemap/intent";
@@ -271,6 +271,9 @@ export function BattleMapPanel({
   // the aim is on, the order dialog, and the banner for a new turn.
   const [plateTokenId, setPlateTokenId] = useState<string | null>(null);
   const [aimHoverId, setAimHoverId] = useState<string | null>(null);
+  // The enemy whose intent is spelled out: its arc on the board, its
+  // sentence in the chrome along the frame's top (BoardIntent.tsx).
+  const [intentLitId, setIntentLitId] = useState<string | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
   const [endingTurn, setEndingTurn] = useState(false);
   const turnKey = view.turn ? `${view.turn.tokenId}:${view.turn.round}` : "";
@@ -865,6 +868,13 @@ export function BattleMapPanel({
 
   const hudToken = hudTokenId ? tokensById.get(hudTokenId) : undefined;
   const plateToken = plateTokenId ? tokensById.get(plateTokenId) : undefined;
+  // What the enemies mean to do shows only while the board is quiet: an aim
+  // or an effect in flight already owns the same space. Put away, the
+  // pressed one is let go, as it was when the layer held it itself.
+  const intentsShown = !scene && !targeting && !hudToken && fx.length === 0;
+  if (!intentsShown && intentLitId !== null) {
+    setIntentLitId(null);
+  }
   const myTurn = Boolean(view.turn && view.myTokenId && view.turn.tokenId === view.myTokenId);
   const mySheet = myToken ? sheetsById.get(myToken.refId) : undefined;
   const hudActions: HudAction[] = useMemo(() => {
@@ -973,11 +983,19 @@ export function BattleMapPanel({
       {view.outdoors ? <SkyLayer scene={sky} mode="board" className="rounded-lg" visible={visible} /> : null}
       <div
         className={cn(cam.eased && "sky-wash", "relative", drawActive && "touch-none")}
-        style={{
-          transform: `translate(${cam.camera.x}px, ${cam.camera.y}px) scale(${cam.camera.zoom})`,
-          transformOrigin: "0 0",
-          transition: cam.eased ? "transform var(--dur-scene) var(--ease-drift)" : "none",
-        }}
+        style={
+          {
+            transform: `translate(${cam.camera.x}px, ${cam.camera.y}px) scale(${cam.camera.zoom})`,
+            transformOrigin: "0 0",
+            transition: cam.eased ? "transform var(--dur-scene) var(--ease-drift)" : "none",
+            // One over the zoom: what rides on the board at a size of its own
+            // (the intent badge, the name plate, the wheel) scales by this and
+            // stays that size on screen however near the camera comes. The
+            // phone's close-up is several times the fit, and without it they
+            // came out several times their size over the figures they name.
+            "--ink": cam.camera.zoom > 0 ? 1 / cam.camera.zoom : 1,
+          } as CSSProperties
+        }
       >
         <BattleMapGrid
           view={gridView}
@@ -1040,6 +1058,7 @@ export function BattleMapPanel({
             boardWidth={view.width}
             boardHeight={view.height}
             footprint={view.tokenFootprint[hudToken.id] ?? 1}
+            tilePx={cam.tilePx}
             actions={targeting ? [] : hudActions}
             hint={
               targeting
@@ -1060,7 +1079,7 @@ export function BattleMapPanel({
         ) : null}
         {/* What the enemies mean to do. Only while the board is quiet: an aim
             or an effect in flight already owns the same space. */}
-        {!scene && !targeting && !hudToken && fx.length === 0 ? (
+        {intentsShown ? (
           <IntentLayer
             intents={intents}
             tokens={view.tokens}
@@ -1068,7 +1087,8 @@ export function BattleMapPanel({
             boardWidth={view.width}
             boardHeight={view.height}
             round={view.round}
-            faceOf={faceOfToken}
+            litId={intentLitId}
+            onLit={setIntentLitId}
           />
         ) : null}
         {plateToken && !hudToken && !tokenGhost && !drawActive ? (
@@ -1105,6 +1125,9 @@ export function BattleMapPanel({
           // Amulet of Health raises it (condition-logic.ts effectiveMaxHp).
           hp={mySheet ? { current: mySheet.currentHp, max: effectiveMaxHp(mySheet) } : null}
         />
+      ) : null}
+      {intentsShown ? (
+        <IntentToast intents={intents} tokens={view.tokens} round={view.round} litId={intentLitId} faceOf={faceOfToken} />
       ) : null}
       {!scene && bannerKey ? (
         <TurnBanner key={bannerKey} text={myTurn ? "Your turn" : view.currentTurnName} mine={myTurn} />

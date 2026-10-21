@@ -341,11 +341,17 @@ export function TokenPlate({
       style={{
         // Half the plate's width in from either edge, so it never runs off
         // the board; a plate near a corner slides along rather than hanging.
-        left: `clamp(88px, ${cx}%, calc(100% - 88px))`,
+        // The plate is its own size on screen at any zoom (the camera's
+        // --ink, BattleMapPanel.tsx), so the margin and the gap are too.
+        left: `clamp(calc(88px * var(--ink, 1)), ${cx}%, calc(100% - 88px * var(--ink, 1)))`,
         top: `${cy}%`,
         // `translate`, not `transform`: the fade-up animates transform and
         // holds its last frame, which would drop the plate's own offset.
-        translate: below ? "-50% 6px" : "-50% calc(-100% - 6px)",
+        translate: below ? "-50% calc(6px * var(--ink, 1))" : "-50% calc(-100% - 6px * var(--ink, 1))",
+        // Scaled back by the zoom about the edge that faces the figure, so
+        // that edge stays where the translate put it.
+        scale: "var(--ink, 1)",
+        transformOrigin: below ? "50% 0" : "50% 100%",
       }}
     >
       {/* The plates are square paintings; a square frame shows all of one. */}

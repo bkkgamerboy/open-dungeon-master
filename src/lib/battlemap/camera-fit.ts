@@ -35,6 +35,19 @@ export function minZoomFor(fit: FitCamera): number {
   return Math.min(MIN_ZOOM, fit.zoom);
 }
 
-export function clampZoomTo(zoom: number, floor: number): number {
-  return Math.min(MAX_ZOOM, Math.max(floor, zoom));
+// The nearest a view may come: three times the fit, or as near as shows a
+// square this many pixels across, whichever is nearer. A board is laid out
+// as wide as its frame, so a wide one on a phone has small squares at the
+// fit: the Undercroft's 46 on a phone 400 px across are 9 px a square, and
+// three times that left a figure a fingertip wide, the phone's close-up
+// stopping at 15 squares across when it asked for 9.
+export const MAX_TILE_PX = 72;
+
+// The ceiling for a board whose squares are `tilePx` across at the fit.
+export function maxZoomFor(tilePx: number): number {
+  return tilePx > 0 ? Math.max(MAX_ZOOM, MAX_TILE_PX / tilePx) : MAX_ZOOM;
+}
+
+export function clampZoomTo(zoom: number, floor: number, ceiling: number = MAX_ZOOM): number {
+  return Math.min(Math.max(floor, ceiling), Math.max(floor, zoom));
 }

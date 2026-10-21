@@ -109,6 +109,7 @@ export function TokenHud({
   boardWidth,
   boardHeight,
   footprint,
+  tilePx = 0,
   actions,
   hint,
   onClose,
@@ -117,6 +118,9 @@ export function TokenHud({
   boardWidth: number;
   boardHeight: number;
   footprint: number;
+  // A square's width on screen (useBoardCamera.ts tilePx): the wheel is its
+  // own size at any zoom, and opens wide enough to clear a figure drawn big.
+  tilePx?: number;
   actions: HudAction[];
   // A line under the arc: "tap an enemy" while a target is being chosen.
   hint?: string;
@@ -126,7 +130,7 @@ export function TokenHud({
   const cy = ((token.y + footprint / 2) / boardHeight) * 100;
   // The arc opens upward, or downward near the top edge so it stays on the board.
   const flip = token.y < boardHeight / 3;
-  const radius = 56;
+  const radius = Math.max(56, Math.round((footprint * tilePx) / 2 + 26));
   const spread = Math.min(Math.PI, actions.length * 0.52);
   const start = (flip ? Math.PI / 2 : -Math.PI / 2) - spread / 2;
   return (
@@ -137,7 +141,9 @@ export function TokenHud({
     >
       <div
         className="absolute"
-        style={{ left: `${cx}%`, top: `${cy}%`, width: 0, height: 0 }}
+        // Scaled back by the camera's zoom (--ink, BattleMapPanel.tsx) about
+        // the figure's centre: the buttons are the screen's size, close up or far.
+        style={{ left: `${cx}%`, top: `${cy}%`, width: 0, height: 0, scale: "var(--ink, 1)", transformOrigin: "0 0" }}
       >
         {actions.map((action, index) => {
           const angle = start + (actions.length === 1 ? spread / 2 : (index / (actions.length - 1)) * spread);

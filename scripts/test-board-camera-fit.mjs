@@ -6,7 +6,7 @@ import { register } from "node:module";
 
 register("./lib/register-alias.mjs", import.meta.url);
 
-const { fitCamera, minZoomFor, clampZoomTo, MIN_ZOOM, MAX_ZOOM } = await import("../src/lib/battlemap/camera-fit.ts");
+const { fitCamera, minZoomFor, maxZoomFor, clampZoomTo, MIN_ZOOM, MAX_ZOOM, MAX_TILE_PX } = await import("../src/lib/battlemap/camera-fit.ts");
 
 let passed = 0;
 function test(name, fn) {
@@ -53,6 +53,25 @@ test("the view may zoom out as far as the fit, and no further than before otherw
   assert.equal(clampZoomTo(0.1, MIN_ZOOM), MIN_ZOOM);
   assert.equal(clampZoomTo(9, MIN_ZOOM), MAX_ZOOM);
   assert.equal(clampZoomTo(1.5, MIN_ZOOM), 1.5);
+});
+
+test("a wide board on a phone may come near enough for a thumb's-width square", () => {
+  // The Undercroft, 46 squares, on a phone's board 396 px wide: 8.6 px a
+  // square at the fit. Three times that was a fingertip and the close-up's
+  // nine squares across never came; the ceiling now lets it.
+  const tilePx = 396 / 46;
+  const ceiling = maxZoomFor(tilePx);
+  assert.ok(ceiling > 46 / 9, `ceiling ${ceiling.toFixed(2)} reaches nine squares across`);
+  assert.ok(Math.abs(ceiling * tilePx - MAX_TILE_PX) < 1e-9, "the ceiling is a square MAX_TILE_PX across");
+  const nine = clampZoomTo(46 / 9, MIN_ZOOM, ceiling);
+  assert.equal(nine, 46 / 9);
+  assert.ok((396 / 9) >= 40, "nine squares across a phone are a thumb's width each");
+  // A board whose squares are already big keeps the old ceiling.
+  assert.equal(maxZoomFor(40), MAX_ZOOM);
+  assert.equal(maxZoomFor(0), MAX_ZOOM);
+  // And the ceiling never undercuts the floor.
+  assert.equal(clampZoomTo(9, MIN_ZOOM, ceiling), ceiling);
+  assert.equal(clampZoomTo(0.1, 0.3, MAX_ZOOM), 0.3);
 });
 
 console.log(`\n${passed} board fit checks passed`);

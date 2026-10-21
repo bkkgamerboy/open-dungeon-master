@@ -1,7 +1,7 @@
 "use client";
 
 import { Crosshair, Footprints, Sparkles, Swords, Zap } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { cn } from "@/lib/cn";
 import { TILE } from "@/app/campaigns/[campaignId]/battleMapCells";
 import { TokenFace } from "@/app/campaigns/[campaignId]/BoardChrome";
@@ -11,6 +11,13 @@ import { intentArc, intentSentence, visibleIntents, type TokenIntent } from "@/l
 // Enemy intent on the board (docs/visual-overhaul-plan.md 5.6): a breathing
 // badge over each enemy that means to do something, the diamond-scale arc to
 // its mark, and the sentence spelled out, on hover, focus or a press.
+//
+// The badges and the arc ride on the board, inside the camera's zoom; the
+// badge is drawn at its own size whatever the zoom (the --ink the camera
+// layer carries, BattleMapPanel.tsx), so on a phone's close-up it stays a
+// badge over the figure and not a red disc five squares wide over the
+// party. The sentence is the board's chrome (IntentToast below), fixed to
+// the frame along its top, not to the top of a board zoomed off screen.
 //
 // Display only. The board draws exactly the intents its projection was sent
 // and nothing else: it never derives one, and it drops any that names a
@@ -25,6 +32,10 @@ const GLYPH = {
   other: Zap,
 } as const;
 
+// The badge's centre sits this many screen pixels clear of its figure's
+// edge, so the badge (21 px tall) clears the figure at any zoom.
+const BADGE_CLEAR_PX = 13;
+
 export function IntentLayer({
   intents,
   tokens,
@@ -32,7 +43,8 @@ export function IntentLayer({
   boardWidth,
   boardHeight,
   round,
-  faceOf,
+  litId,
+  onLit,
 }: {
   intents: TokenIntent[] | null | undefined;
   tokens: StageToken[];
@@ -40,9 +52,13 @@ export function IntentLayer({
   boardWidth: number;
   boardHeight: number;
   round?: number;
-  faceOf: (token: StageToken) => Array<string | null | undefined>;
+  // The actor whose intent is spelled out (its arc drawn, its sentence in
+  // IntentToast); the panel holds it so the sentence can sit in the chrome.
+  litId: string | null;
+  onLit: (update: (current: string | null) => string | null) => void;
 }) {
-  const [litId, setLitId] = useState<string | null>(null);
+  const setLitId = (next: string | null | ((current: string | null) => string | null)) =>
+    onLit(typeof next === "function" ? next : () => next);
   const byId = useMemo(() => new Map(tokens.map((token) => [token.id, token])), [tokens]);
   const shown = useMemo(
     () => visibleIntents(intents, tokens.map((token) => token.id), round),
@@ -104,7 +120,12 @@ export function IntentLayer({
             onPointerLeave={(event) => {
               if (event.pointerType === "mouse") setLitId(null);
             }}
-            onFocus={() => setLitId(actor.id)}
+            // Focus from the keyboard lights it. A tap focuses the badge too, a
+            // moment before its click, and the click's toggle then put out
+            // what the focus had just lit: the sentence flashed and was gone.
+            onFocus={(event) => {
+              if (event.currentTarget.matches(":focus-visible")) setLitId(actor.id);
+            }}
             onBlur={() => setLitId(null)}
             // A press is the phone's hover: it holds the arc until pressed again.
             onClick={(event) => {
@@ -119,8 +140,14 @@ export function IntentLayer({
             style={{
               left: `${((actor.x + footprint / 2) / boardWidth) * 100}%`,
               // Above the figure, except along the top rows, where the initiative
-              // rail would cover it: there it hangs below instead.
-              top: `${((actor.y < 2 ? actor.y + footprint + 0.34 : actor.y - 0.34) / boardHeight) * 100}%`,
+              // rail would cover it: there it hangs below instead. The edge is
+              // the board's; the gap is the screen's, like the badge.
+              top: `${((actor.y < 2 ? actor.y + footprint : actor.y) / boardHeight) * 100}%`,
+              marginTop: `calc(${actor.y < 2 ? BADGE_CLEAR_PX : -BADGE_CLEAR_PX}px * var(--ink, 1))`,
+              // Its own size at any zoom: scaled back by the camera's zoom about
+              // the point it is centred on (the badge's own translate, board.css).
+              scale: "var(--ink, 1)",
+              transformOrigin: "0 0",
             }}
           >
             <span
@@ -135,28 +162,56 @@ export function IntentLayer({
           </button>
         );
       })}
-      {lit && litActor ? (
-        <div
-          role="status"
-          className="intent-toast absolute left-1/2 top-3 z-10 flex max-w-[92%] items-center gap-2 rounded-full border border-[rgba(220,38,38,0.5)] bg-[rgba(8,6,18,0.94)] py-[5px] pl-[5px] pr-[11px] shadow-[0_8px_24px_rgba(4,2,12,0.6)]"
-        >
-          <TokenFace
-            candidates={faceOf(litActor)}
-            name={litActor.name}
-            enemy
-            className="size-6 rounded-full border border-[rgba(220,38,38,0.7)]"
-          />
-          <span className="min-w-0 truncate font-serif text-[12.5px] text-[#e9e6f4]">
-            {intentSentence(lit, litActor.name, litTarget?.name)}
-          </span>
-          {litTarget ? (
-            <TokenFace
-              candidates={faceOf(litTarget)}
-              name={litTarget.name}
-              className="size-6 rounded-full border border-[rgba(227,193,92,0.6)]"
-            />
-          ) : null}
-        </div>
+    </div>
+  );
+}
+
+// The sentence of the intent pressed, along the top of the board's frame:
+// the chrome, outside the camera, so it is a line of text on screen at any
+// zoom and never off the top of a board zoomed past it.
+export function IntentToast({
+  intents,
+  tokens,
+  round,
+  litId,
+  faceOf,
+}: {
+  intents: TokenIntent[] | null | undefined;
+  tokens: StageToken[];
+  round?: number;
+  litId: string | null;
+  faceOf: (token: StageToken) => Array<string | null | undefined>;
+}) {
+  const shown = useMemo(
+    () => visibleIntents(intents, tokens.map((token) => token.id), round),
+    [intents, tokens, round],
+  );
+  const lit = litId ? shown.find((intent) => intent.actorTokenId === litId) ?? null : null;
+  const litActor = lit ? tokens.find((token) => token.id === lit.actorTokenId) : undefined;
+  if (!lit || !litActor) {
+    return null;
+  }
+  const litTarget = lit.targetTokenId ? tokens.find((token) => token.id === lit.targetTokenId) : undefined;
+  return (
+    <div
+      role="status"
+      className="intent-toast pointer-events-none absolute left-1/2 top-3 z-20 flex max-w-[92%] items-center gap-2 rounded-full border border-[rgba(220,38,38,0.5)] bg-[rgba(8,6,18,0.94)] py-[5px] pl-[5px] pr-[11px] shadow-[0_8px_24px_rgba(4,2,12,0.6)]"
+    >
+      <TokenFace
+        candidates={faceOf(litActor)}
+        name={litActor.name}
+        enemy
+        className="size-6 rounded-full border border-[rgba(220,38,38,0.7)]"
+      />
+      <span className="min-w-0 truncate font-serif text-[12.5px] text-[#e9e6f4]">
+        {intentSentence(lit, litActor.name, litTarget?.name)}
+      </span>
+      {litTarget ? (
+        <TokenFace
+          candidates={faceOf(litTarget)}
+          name={litTarget.name}
+          className="size-6 rounded-full border border-[rgba(227,193,92,0.6)]"
+        />
       ) : null}
     </div>
   );

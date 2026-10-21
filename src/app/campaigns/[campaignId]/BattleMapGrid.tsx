@@ -356,7 +356,12 @@ export const BattleMapGrid = memo(
     }
 
     function handleSvgMove(event: React.MouseEvent<SVGSVGElement>) {
-      handleTokenHover(event);
+      // A tap's compatibility mousemove is no hover over a figure: the tap's
+      // own click shows the plate (a tap is the phone's hover), and a plate
+      // the mousemove had put up first was toggled off again by that click.
+      if (pointerTypeRef.current !== "touch") {
+        handleTokenHover(event);
+      }
       if (!hoverRef.current) {
         return;
       }
@@ -377,6 +382,10 @@ export const BattleMapGrid = memo(
         aria-label="Battle map"
         onClick={handleSvgClick}
         onPointerDown={(event) => {
+          pointerTypeRef.current = event.pointerType;
+        }}
+        // A mouse that moves after a tap is a mouse again, before any press.
+        onPointerMove={(event) => {
           pointerTypeRef.current = event.pointerType;
         }}
         onMouseMove={onTileHover || onTokenHover ? handleSvgMove : undefined}

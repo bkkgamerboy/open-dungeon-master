@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TILE } from "@/app/campaigns/[campaignId]/battleMapCells";
 import { prefersReducedMotion } from "@/lib/effects-mode";
-import { clampZoomTo, fitCamera, minZoomFor } from "@/lib/battlemap/camera-fit";
+import { clampZoomTo, fitCamera, maxZoomFor, minZoomFor } from "@/lib/battlemap/camera-fit";
 import type { CameraEvent } from "@/lib/scene/state";
 
 // Zoom and pan for the live board (docs/vtt-parity-implementation-plan.md
@@ -56,6 +56,9 @@ export function useBoardCamera(
   const fittedRef = useRef(true);
   // The frame's last known width, for scaling the pan on a resize (below).
   const frameWidth = useRef(0);
+  // The same, as state: the panel sizes what rides on the board to the
+  // screen and not to the zoom (tilePx, below), and needs the frame for it.
+  const [frameWidthPx, setFrameWidthPx] = useState(0);
   // Every frame the board is drawn in right now, newest last, and the view
   // each one was last drawn with. The enlarged tabletop is a second frame
   // beside the panel's: it opens on its own fit (a wide board in the middle
@@ -147,7 +150,16 @@ export function useBoardCamera(
     const m = metrics();
     return m ? fitCamera(m, { width: boardWidth, height: boardHeight }) : IDENTITY;
   }, [metrics, boardWidth, boardHeight]);
-  const clampZoom = useCallback((zoom: number) => clampZoomTo(zoom, minZoomFor(fit())), [fit]);
+  // As far out as the fit allows, and as near as a square a thumb's width or
+  // so (camera-fit.ts maxZoomFor): a wide board on a phone needs more than
+  // three times its fit to get there.
+  const clampZoom = useCallback(
+    (zoom: number) => {
+      const m = metrics();
+      return clampZoomTo(zoom, minZoomFor(fit()), maxZoomFor(m ? TILE * m.unit : 0));
+    },
+    [fit, metrics],
+  );
 
   // The close-up a phone rests on: the focus tile in the middle at the zoom
   // that shows `tiles` across, the board's edge kept to the frame's edge so
@@ -349,6 +361,7 @@ export function useBoardCamera(
       }
       const before = frameWidth.current;
       frameWidth.current = width;
+      setFrameWidthPx(width);
       if (fittedRef.current) {
         const next = restRef.current();
         setEased(false);
@@ -540,6 +553,9 @@ export function useBoardCamera(
     frameRef,
     attachFrame,
     camera,
+    // A square's width on screen right now, in CSS pixels (0 before the
+    // frame is measured).
+    tilePx: frameWidthPx > 0 && boardWidth > 0 ? (frameWidthPx / boardWidth) * camera.zoom : 0,
     eased,
     locked,
     canRelease,
