@@ -9,6 +9,7 @@
 import type { PublicEncounter } from "@/lib/db/encounter-view";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
 import type { HandTurn } from "@/lib/battlemap/hand-core";
+import { currentOrderIndex } from "@/lib/battlemap/initiative-rows";
 
 export type FloorView = { myTurn: boolean; currentName?: string };
 
@@ -106,4 +107,16 @@ export function playingSheet<T extends { id: string; userId: string; isCompanion
 ): T | null {
   const own = sheets.filter((sheet) => sheet.userId === meUserId && !sheet.isCompanion);
   return own.find((sheet) => sheet.id === activeSheetId) ?? own[0] ?? null;
+}
+
+// The turn under way as the table sees it, named by its round and by who it
+// rests on, never by its slot (as the engine's turnKey in
+// src/lib/db/encounters.ts, which a page cannot import): an entry spliced in
+// above the one acting shifts the slot mid-turn. A Thief's Reflexes second
+// turn is a turn of its own. The Hand reads it to know a new turn began.
+export function tableTurnKey(encounter: Pick<PublicEncounter, "round" | "order" | "turnIndex" | "acting">): string {
+  const acting = encounter.acting;
+  if (!acting) return `${encounter.round}:`;
+  const row = encounter.order[currentOrderIndex(encounter.order, encounter.turnIndex, acting)];
+  return `${encounter.round}:${acting.id || acting.name}${row?.reflex ? ":reflex" : ""}`;
 }

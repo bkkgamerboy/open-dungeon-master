@@ -16,7 +16,7 @@ register("./lib/register-alias.mjs", import.meta.url);
 const { deriveHand, waitingHand, FRESH_TURN } = await import("../src/lib/battlemap/hand.ts");
 const { previewRows, composeSentence, intentBody } = await import("../src/lib/battlemap/hand-play.ts");
 const { reactionCards, reactionAim } = await import("../src/lib/battlemap/hand-react.ts");
-const { turnFromEncounter, turnPips, turnHudBudget, playingSheet } = await import("../src/lib/battlemap/hand-table.ts");
+const { turnFromEncounter, turnPips, turnHudBudget, playingSheet, tableTurnKey } = await import("../src/lib/battlemap/hand-table.ts");
 
 const { hudGates } = await import("../src/lib/battlemap/hand-hud.ts");
 const { conditionNote, conditionNoteLine, namesLookup } = await import("../src/lib/battlemap/condition-notes.ts");
@@ -545,6 +545,24 @@ test("a two-handed weapon's card is shut while a shield is worn, in the engine's
   // A one-handed weapon beside the shield is swung as ever.
   const sword = byId(deriveHand(sheet({ equipment: [item("Longsword", { equipped: true }), item("Shield", { equipped: true })] }), mine()), "attack:longsword");
   assert.equal(sword.disabled, null);
+});
+
+// Build 24: the hand comes back out when a new turn of its player's begins,
+// and knows the turn by its round and who it rests on, never by its slot.
+test("the table's turn key names the round and the one acting, not the slot", () => {
+  const order = [
+    { id: "a", name: "Kara" },
+    { id: "b", name: "Goblin" },
+  ];
+  const kara = { round: 2, order, turnIndex: 0, acting: { id: "kara-sheet", name: "Kara" } };
+  // A reinforcement spliced in above shifts the slot; the turn is the same.
+  const spliced = { round: 2, order: [{ id: "x", name: "Captain" }, ...order], turnIndex: 1, acting: kara.acting };
+  assert.equal(tableTurnKey(spliced), tableTurnKey(kara));
+  assert.notEqual(tableTurnKey({ ...kara, round: 3 }), tableTurnKey(kara), "a new round is a new turn");
+  assert.notEqual(tableTurnKey({ ...kara, turnIndex: 1, acting: { id: "", name: "Goblin" } }), tableTurnKey(kara));
+  // A Thief's Reflexes second turn is a turn of its own.
+  const reflex = { round: 1, order: [{ id: "a", name: "Kara" }, { id: "a", name: "Kara", reflex: true }], turnIndex: 1, acting: kara.acting };
+  assert.notEqual(tableTurnKey(reflex), tableTurnKey({ ...reflex, turnIndex: 0 }));
 });
 
 console.log(`test-hand-engine: ${passed} passed`);

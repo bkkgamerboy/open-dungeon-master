@@ -32,7 +32,7 @@ import {
   type HandTargetDetail,
 } from "@/lib/battlemap/hand-play";
 import { reactionAim, reactionCards, withReactions } from "@/lib/battlemap/hand-react";
-import { turnFromEncounter, turnPips, turnSignature } from "@/lib/battlemap/hand-table";
+import { tableTurnKey, turnFromEncounter, turnPips, turnSignature } from "@/lib/battlemap/hand-table";
 
 import type { TargetEdge } from "@/lib/battlemap/view-tactics";
 import { replayAnimation } from "@/lib/motion/replay";
@@ -329,9 +329,10 @@ function HandInner({
     return () => window.removeEventListener(COMPOSER_SENT_EVENT, onSent);
   }, [putAway]);
 
-  // A new turn in the order (round and seat) that is this player's: a hand
-  // that put itself away comes back out. One its player put away stays so.
-  const turnKey = `${encounter.round}:${encounter.turnIndex}`;
+  // A new turn in the order (its round and who it rests on) that is this
+  // player's: a hand that put itself away comes back out. One its player put
+  // away stays so.
+  const turnKey = tableTurnKey(encounter);
   const lastTurnKey = useRef("");
   useEffect(() => {
     if (turnKey === lastTurnKey.current) return;
