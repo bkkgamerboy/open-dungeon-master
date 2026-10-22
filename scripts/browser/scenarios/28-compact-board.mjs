@@ -59,6 +59,17 @@ export default {
         return Math.hypot(dx, dy) / Math.max(1, figureBox.width);
       };
       await eventually(async () => (await offCentre()) < 0.6, { timeoutMs: 8_000, label: "Tavi centred on the board" });
+      // Build 27: no line of instructions under the board ("Tap a lit tile
+      // to move, or your figure for actions."); the board runs down to the
+      // tab bar instead.
+      check(
+        (await page.locator(`${root}.board-panel--compact > p`).locator("visible=true").count()) === 0,
+        "no instruction line under the compact board",
+      );
+      check(
+        (await page.getByText(/tap a (lit|highlighted) tile/i).locator("visible=true").count()) === 0,
+        "no 'tap a tile to move' hint on the phone",
+      );
       await t.shot("board");
 
       await tapFigure(t, tavi);

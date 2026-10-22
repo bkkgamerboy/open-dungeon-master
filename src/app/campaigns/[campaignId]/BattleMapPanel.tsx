@@ -1260,26 +1260,11 @@ export function BattleMapPanel({
       {targeting ? aimChips : canMove ? moveModes : null}
     </CompactActionSheet>
   ) : null;
+  // No line of instructions under the compact board (build 27): the lit
+  // tiles and the sheet say what a tap does, and the line only took the
+  // board's room above the tab bar.
   const compactUnder = (
     <>
-      {sheetOpen ? null : (
-        <p className="text-[11px] leading-4 text-stone-500">
-          {myTurn && !scene ? "Tap a lit tile to move, or your figure for actions." : boardHintText({
-            canDirect,
-            tool,
-            teleporting: Boolean(teleporting),
-            held: Boolean(held),
-            liveOrigin: Boolean(liveOrigin),
-            pointing,
-            drawing,
-            targeting: Boolean(targeting),
-            canMove,
-            scene,
-            budgetLeft: view.budgetLeft,
-            hasToken: Boolean(view.myTokenId),
-          })}
-        </p>
-      )}
       {/* An area being aimed from the Hand says what it catches here, sheet
           or no sheet. */}
       {areaAim.active && !sheetOpen ? moveModes : null}
@@ -1296,22 +1281,25 @@ export function BattleMapPanel({
         areaHint={areaAim.hint}
         caught={areaAim.caught}
       />
-      <p className="text-[11px] leading-4 text-stone-500">
-        {boardHintText({
-          canDirect,
-          tool,
-          teleporting: Boolean(teleporting),
-          held: Boolean(held),
-          liveOrigin: Boolean(liveOrigin),
-          pointing,
-          drawing,
-          targeting: Boolean(targeting),
-          canMove,
-          scene,
-          budgetLeft: view.budgetLeft,
-          hasToken: Boolean(view.myTokenId),
-        })}
-      </p>
+      {/* The enlarged board on a phone goes without the instructions too. */}
+      {compact ? null : (
+        <p className="text-[11px] leading-4 text-stone-500">
+          {boardHintText({
+            canDirect,
+            tool,
+            teleporting: Boolean(teleporting),
+            held: Boolean(held),
+            liveOrigin: Boolean(liveOrigin),
+            pointing,
+            drawing,
+            targeting: Boolean(targeting),
+            canMove,
+            scene,
+            budgetLeft: view.budgetLeft,
+            hasToken: Boolean(view.myTokenId),
+          })}
+        </p>
+      )}
       {error ? <p className="text-[11px] text-red-400">{error}</p> : null}
       {targeting ? (
         <TargetChips
