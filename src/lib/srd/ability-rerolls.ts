@@ -11,10 +11,14 @@
 
 export const REROLL_NEVER = 0;
 export const REROLL_ALWAYS = 108;
-// ODM's own default for "reroll a poor roll", and so the server's rule until
-// an admin changes it: global-config.ts and the builder's bundled rule
-// (abilityDice.ts) take it from here.
+// The threshold "reroll a poor roll" starts at when it is chosen, and the
+// server's rule before build 26.
 export const REROLL_LOW_DEFAULT = 70;
+// The server's rule until an admin changes it (build 26): throw the six
+// again as often as you like, as players rolling up heroes for an evening
+// always have. global-config.ts and the builder's bundled rule
+// (abilityDice.ts) take it from here.
+export const REROLL_DEFAULT = REROLL_ALWAYS;
 
 export type RerollChoice = "keep" | "low" | "free";
 

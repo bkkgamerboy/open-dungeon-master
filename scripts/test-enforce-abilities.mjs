@@ -19,7 +19,8 @@
 // builder's own gate (src/app/characters/builder/submit.ts).
 //
 // ODM's own rules, pinned: rolled scores are a pool of six placed freely, and
-// by default the pool may be rerolled only while it totals under 70
+// by default the pool may be rerolled freely (build 26), or under a rule
+// only while it totals under that rule
 // (builder/abilityDice.ts; Admin > Server or a table may set another rule,
 // test-table-rerolls.mjs); SRD 5.1 has no reroll rule at all.
 import assert from "node:assert/strict";
@@ -151,10 +152,11 @@ await test("4d6 drop the lowest: every total is 3 to 18 and the pool is six", ()
   assert.equal(dice.rollFourDice(faces([6, 6, 6, 1])).total, 18);
   assert.equal(dice.rollFourDice(faces([2, 5, 3, 4])).total, 12);
   assert.equal(dice.rollPool(faces([3, 4, 5, 6])).length, 6);
-  // ODM's rule, not the SRD's: a fresh six only when the pool is under 70.
-  assert.equal(dice.REROLL_BELOW, 70);
-  assert.equal(dice.canRerollPool([11, 11, 12, 12, 12, 11].map((total) => ({ total, roll: null }))), true);
-  assert.equal(dice.canRerollPool([12, 12, 12, 12, 11, 11].map((total) => ({ total, roll: null }))), false);
+  // ODM's rule, not the SRD's: by default any six may be thrown again
+  // (build 26); a rule of 70 allows a fresh six only under 70.
+  assert.equal(dice.REROLL_BELOW, 108);
+  assert.equal(dice.canRerollPool([11, 11, 12, 12, 12, 11].map((total) => ({ total, roll: null })), 70), true);
+  assert.equal(dice.canRerollPool([12, 12, 12, 12, 11, 11].map((total) => ({ total, roll: null })), 70), false);
 });
 
 await test("an improvement taken in the builder stops at 20", () => {

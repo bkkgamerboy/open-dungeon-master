@@ -1,13 +1,15 @@
 // The 4d6 pool the server throws and keeps for a player (issue #128): a six
 // handed back from record is marked kept, with when it was thrown; the
 // reroll threshold is the admin's setting, 0 allowing no second throw; a
-// spent pool is gone.
+// spent pool is gone. From build 26 the default is to reroll freely, and a
+// server from before it, which stored the old default of 70 with every
+// save of anything else, reads that unchosen 70 as the new default.
 import assert from "node:assert/strict";
 import { openWorld } from "./lib/enforce-world.mjs";
 
 const world = await openWorld();
 const rolls = await import("../src/lib/db/creation-rolls.ts");
-const { getGlobalConfig, saveGlobalConfig } = await import("../src/lib/db/app-settings.ts");
+const { getGlobalConfig, saveGlobalConfig, setAppSetting } = await import("../src/lib/db/app-settings.ts");
 
 let passed = 0;
 function test(name, fn) {
@@ -19,13 +21,13 @@ function test(name, fn) {
 const player = world.addUser("roller");
 const faces = (pool) => pool.throws.map((entry) => entry.dice.join("")).join("|");
 
-test("the default rule is 70, and the first throw is never kept", () => {
-  assert.equal(getGlobalConfig().abilityRerollBelow, 70);
-  assert.equal(rolls.abilityRerollBelow(), 70);
+test("the default rule rerolls freely, and the first throw is never kept", () => {
+  assert.equal(getGlobalConfig().abilityRerollBelow, 108);
+  assert.equal(rolls.abilityRerollBelow(), 108);
   assert.equal(rolls.openAbilityPool(player.id), null);
   const first = rolls.rollAbilityPool(player.id);
   assert.equal(first.kept, false);
-  assert.equal(first.rerollBelow, 70);
+  assert.equal(first.rerollBelow, 108);
   assert.ok(first.createdAt, "a fresh throw says when");
   assert.equal(first.throws.length, 6);
 });
@@ -35,7 +37,26 @@ test("a six on record comes back marked kept, with when it was thrown", () => {
   assert.ok(open);
   assert.equal(open.kept, true);
   assert.ok(open.createdAt);
-  assert.equal(open.rerollBelow, 70);
+  assert.equal(open.rerollBelow, 108);
+  assert.equal(open.canReroll, true, "a free rule offers another throw of any six");
+});
+
+test("a stored 70 nobody chose reads as the free default; a chosen one stands", () => {
+  // A config saved before build 26: every save wrote the old default.
+  setAppSetting("global_config", { ...getGlobalConfig(), abilityRerollBelow: 70, abilityRerollChosen: undefined });
+  assert.equal(getGlobalConfig().abilityRerollBelow, 108);
+  assert.equal(rolls.abilityRerollBelow(), 108);
+  // Saving something else keeps it free.
+  assert.equal(saveGlobalConfig({ serverName: "Phone world" }).abilityRerollBelow, 108);
+  assert.equal(getGlobalConfig().abilityRerollChosen, false);
+  // Another number stored before build 26 was somebody's choice.
+  setAppSetting("global_config", { ...getGlobalConfig(), abilityRerollBelow: 64, abilityRerollChosen: undefined });
+  assert.equal(getGlobalConfig().abilityRerollBelow, 64);
+  // An admin who picks 70 now gets 70.
+  assert.equal(saveGlobalConfig({ abilityRerollBelow: 70 }).abilityRerollBelow, 70);
+  assert.equal(getGlobalConfig().abilityRerollBelow, 70);
+  assert.equal(getGlobalConfig().abilityRerollChosen, true);
+  assert.equal(saveGlobalConfig({ serverName: "Phone world" }).abilityRerollBelow, 70, "a chosen 70 outlives other saves");
 });
 
 test("under a rule of 0 no second throw is allowed: asking again hands back the same six, kept", () => {
@@ -58,7 +79,7 @@ test("under a rule of 108 anything may be thrown back: asking again throws fresh
   assert.notEqual(faces(again), faces(before), "the same twenty-four dice twice");
 });
 
-test("the setting is bounded and the default returns", () => {
+test("the setting can be set back to reroll a low roll", () => {
   assert.equal(saveGlobalConfig({ abilityRerollBelow: 70 }).abilityRerollBelow, 70);
   assert.equal(rolls.abilityRerollBelow(), 70);
 });

@@ -111,6 +111,9 @@ await test("The lead sets the table's rule: a number from 0 to 108, or none to f
 });
 
 await test("A table that rerolls freely throws a fresh six even for a strong roll, while the library keeps its strong roll under the server's 70.", async () => {
+  // A server whose admin chose "reroll a low roll" at 70 (the default is
+  // free from build 26).
+  saveGlobalConfig({ abilityRerollBelow: 70 });
   assert.equal((await setRule(108)).status, 200);
   const first = await roll(player, HIGH, campaignId);
   assert.equal(first.status, 200, JSON.stringify(first.json));

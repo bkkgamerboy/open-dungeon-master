@@ -109,17 +109,19 @@ test("standard array: taking a value clears its holder, taking your own hands it
   assert.equal(empty.str, null, "the input is not mutated");
 });
 
-test("the pool is six 4d6 throws, rerollable only under 70", () => {
+test("the pool is six 4d6 throws; by default any six may be thrown again, under a rule only below it", () => {
   const pool = rollPool(deal(6, 6, 6, 1));
   assert.equal(pool.length, 6);
   for (const entry of pool) assert.equal(entry.total, entry.roll.total);
-  assert.equal(REROLL_BELOW, 70);
+  // Build 26: the bundled rule is the server's default, reroll freely.
+  assert.equal(REROLL_BELOW, 108);
   assert.equal(canRerollPool(null), true, "the first throw is always allowed");
   const at = (totals) => totals.map((total) => ({ total, roll: null }));
   assert.equal(poolSum(at([18, 18, 18, 18, 10, 10])), 92);
-  assert.equal(canRerollPool(at([18, 18, 18, 18, 10, 10])), false);
-  assert.equal(canRerollPool(at([12, 12, 12, 12, 11, 11])), false, "exactly 70 is not under 70");
-  assert.equal(canRerollPool(at([12, 12, 12, 12, 11, 10])), true);
+  assert.equal(canRerollPool(at([18, 18, 18, 18, 10, 10])), true, "a strong six may be thrown back by default");
+  assert.equal(canRerollPool(at([18, 18, 18, 18, 10, 10]), 70), false);
+  assert.equal(canRerollPool(at([12, 12, 12, 12, 11, 11]), 70), false, "exactly 70 is not under 70");
+  assert.equal(canRerollPool(at([12, 12, 12, 12, 11, 10]), 70), true);
   // The server's threshold is an admin setting (issue #128): 0 allows no
   // second throw, a higher number lets a better pool be thrown back.
   assert.equal(canRerollPool(at([8, 8, 8, 8, 8, 8]), 0), false, "no rerolls at 0");

@@ -5,6 +5,7 @@ import {
   type GlobalConfig,
 } from "@/lib/schemas/global-config";
 import { parseKeepingValid } from "@/lib/schemas/parse-keeping-valid";
+import { REROLL_DEFAULT, REROLL_LOW_DEFAULT } from "@/lib/srd/ability-rerolls";
 
 const GLOBAL_CONFIG_KEY = "global_config";
 
@@ -64,6 +65,16 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+// The 4d6 reroll rule nobody chose: a server from before build 26 stored
+// the old default, 70, with every save of anything else, and a phone's
+// world has no screen to change it. Unchosen, that 70 reads as today's
+// default; any other number, or one an admin set, stands.
+function withRerollDefault(config: GlobalConfig): GlobalConfig {
+  return !config.abilityRerollChosen && config.abilityRerollBelow === REROLL_LOW_DEFAULT
+    ? { ...config, abilityRerollBelow: REROLL_DEFAULT }
+    : config;
+}
+
 export function getGlobalConfig(): GlobalConfig {
   const row = getDatabase()
     .prepare(`SELECT value_json FROM app_settings WHERE key = ?`)
@@ -76,7 +87,7 @@ export function getGlobalConfig(): GlobalConfig {
   } catch {
     return DEFAULT_GLOBAL_CONFIG;
   }
-  const config = parseKeepingValid(globalConfigSchema, raw);
+  const config = withRerollDefault(parseKeepingValid(globalConfigSchema, raw));
   parsedConfig = {
     raw: row.value_json,
     config: process.env.NODE_ENV === "production" ? config : deepFreeze(config),
@@ -122,6 +133,7 @@ export function saveGlobalConfig(patch: GlobalConfigPatch): GlobalConfig {
     accountDeletionGraceDays:
       patch.accountDeletionGraceDays ?? current.accountDeletionGraceDays,
     abilityRerollBelow: patch.abilityRerollBelow ?? current.abilityRerollBelow,
+    abilityRerollChosen: patch.abilityRerollBelow !== undefined || current.abilityRerollChosen,
     publicUrl: patch.publicUrl ?? current.publicUrl,
     worldRegistryUrl: patch.worldRegistryUrl ?? current.worldRegistryUrl,
     sampling: { ...current.sampling, ...patch.sampling },

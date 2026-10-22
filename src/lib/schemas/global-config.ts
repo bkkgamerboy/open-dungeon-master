@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CHECKPOINT_PRESET, isComfyPreset } from "@/lib/image-models/catalog";
-import { REROLL_LOW_DEFAULT } from "@/lib/srd/ability-rerolls";
+import { REROLL_DEFAULT } from "@/lib/srd/ability-rerolls";
 
 // App-wide settings editable from /admin, stored as one JSON blob under
 // app_settings.key = 'global_config'. Every string field treats "" as "no
@@ -24,11 +24,18 @@ export const globalConfigSchema = z.object({
   // The house rule for the builder's 4d6 method: a player may throw a fresh
   // six only while the kept six add up to less than this. 0 allows no
   // reroll at all; 108 (six 18s) rerolls anything. SRD 5.1 names no rule;
-  // 70 was ODM's (issue #128, src/lib/srd/ability-rerolls.ts). The rule in
-  // the library, and at any table that sets none of its own
+  // ODM's was 70 (issue #128) and is 108 from build 26
+  // (src/lib/srd/ability-rerolls.ts REROLL_DEFAULT). The rule in the
+  // library, and at any table that sets none of its own
   // (gameSettings.abilityRerollBelow), where the player's library six are
   // the ones handed back.
-  abilityRerollBelow: z.number().int().min(0).max(108).default(REROLL_LOW_DEFAULT),
+  abilityRerollBelow: z.number().int().min(0).max(108).default(REROLL_DEFAULT),
+  // Whether an admin set the rule above, rather than it being the default
+  // saved along with something else. Every save writes the whole config, so
+  // a server from before build 26 has the old default, 70, stored whether or
+  // not anyone chose it; one never chosen reads as today's default
+  // (src/lib/db/app-settings.ts getGlobalConfig).
+  abilityRerollChosen: z.boolean().default(false),
   // The URL players actually reach the app on (e.g. https://dungeon.example.org).
   // Used for OAuth redirect URIs; blank = APP_PUBLIC_URL env, then forwarded
   // proxy headers, then the raw request origin.

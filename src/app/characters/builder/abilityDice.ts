@@ -3,7 +3,7 @@
 // rule: which die is set aside, how long a toss lasts, which tier a total
 // lands in (docs/visual-overhaul-plan.md 7.2).
 
-import { REROLL_LOW_DEFAULT } from "@/lib/srd/ability-rerolls";
+import { REROLL_DEFAULT } from "@/lib/srd/ability-rerolls";
 import { hpBonusPerLevel } from "@/lib/srd/race-id";
 
 export type Rng = () => number;
@@ -121,7 +121,7 @@ export function assignStandard<K extends string>(
 // whole pool adds up to less than this: the server's default rule, which the
 // builder shows until the server has said what the rule is where the
 // character is being made.
-export const REROLL_BELOW = REROLL_LOW_DEFAULT;
+export const REROLL_BELOW = REROLL_DEFAULT;
 export const POOL_SIZE = 6;
 
 export type PoolRoll = FourDice & { rest: DieRest[] };
