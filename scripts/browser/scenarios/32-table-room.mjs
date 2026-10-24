@@ -1,11 +1,12 @@
 // Build 24: the table gives its room to the story and the box being typed
 // in. A fight has no red round banner over the message box; a player has no
 // row of Do, Say and OOC pills, and the lead's Direct is an icon beside the
-// microphone; the hand ends a turn with one tap on End beside its pips and
-// deals no End turn card. On a phone with the keyboard up (the page shrunk
-// to what is left above it), the tab bar steps aside, the hand's cards fold
-// away, and the message box and Send are whole and on screen; when the
-// keyboard closes the tab bar is back.
+// microphone (on a phone, a cell of the bottom bar since build 28); the
+// hand ends a turn with one tap on End beside its pips and deals no End
+// turn card. On a phone with the keyboard up (the page shrunk to what is
+// left above it), the tab bar steps aside, the hand's cards fold away, and
+// the message box and Send are whole and on screen; when the keyboard
+// closes the tab bar is back.
 import { check, eventually, sleep } from "../lib.mjs";
 
 export default {
@@ -30,7 +31,9 @@ export default {
     for (const pill of ["Do", "Say", "OOC"]) {
       check((await page.locator(`${root}.session-mode`).filter({ hasText: new RegExp(`^${pill}$`) }).count()) === 0, `no ${pill} pill`);
     }
-    check((await page.getByRole("button", { name: "Direct the story" }).locator("visible=true").count()) === 1, "Direct is an icon by the microphone");
+    // One Direct on screen: the icon by the microphone on a wide screen, the
+    // bottom bar's cell on a phone (build 28).
+    check((await page.getByRole("button", { name: "Direct the story" }).locator("visible=true").count()) === 1, viewport === "phone" ? "Direct is a cell of the bottom bar" : "Direct is an icon by the microphone");
     const end = hand.getByRole("button", { name: /^End$/ });
     check((await end.count()) === 1, "End sits beside the hand's pips on your turn");
     check((await hand.locator(".hand-card").filter({ hasText: /End turn/ }).count()) === 0, "no End turn card");

@@ -1,12 +1,12 @@
 "use client";
 
-import type { LucideIcon } from "lucide-react";
-import { memo, useState } from "react";
+import { Loader2, type LucideIcon } from "lucide-react";
+import { Fragment, memo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { ui } from "@/lib/ui";
 import { GameIcon } from "@/components/ui/GameIcon";
 import { paintedRailIcon } from "@/app/campaigns/[campaignId]/SessionGlyph";
-import { SUBTAB_GLYPHS, TABLE_GLYPH, TAB_GLYPHS } from "@/app/campaigns/[campaignId]/sessionGlyphs";
+import { ASK_GLYPH, DIRECT_GLYPH, SUBTAB_GLYPHS, TABLE_GLYPH, TAB_GLYPHS } from "@/app/campaigns/[campaignId]/sessionGlyphs";
 import type { PlayerMapView } from "@/lib/battlemap/view";
 import {
   visiblePanelTabs,
@@ -193,8 +193,32 @@ export function useSessionTabs({
   return { panelTab, setPanelTab, mobileView, setMobileView };
 }
 
+// The phone's Ask and Direct cells (build 28). Neither is a panel: both work
+// on the table itself, so they live here rather than in visiblePanelTabs and
+// never reach the desktop rail, where the Ask strip and the composer's
+// Direct icon stay as they were.
+const AskIcon = paintedRailIcon(ASK_GLYPH);
+const DirectIcon = paintedRailIcon(DIRECT_GLYPH);
+
+// The bar's cells run tighter than the desktop rail's (build 28): with Ask
+// and Direct beside Chat a fight's bar can hold ten cells (Battle and Map
+// among them), and at the rail's own sizes eight already overflowed a
+// 412px phone and pushed Ask and Direct past the edge. The cells still grow
+// to fill the bar when there are fewer; Context and Setup scroll in from
+// the right as before. The paintings are a touch smaller too (world.css).
+const BAR_CELL = cn(ui.railCell, "min-w-0 shrink-0 grow basis-auto px-0.5");
+const BAR_LABEL = "eyebrow whitespace-nowrap text-[8.5px] leading-none tracking-[0.1em]";
+
 // Mobile-only navigation: the main game chat ("Table") plus every panel tab,
 // each filling the screen when selected. Hidden at lg and up.
+//
+// Ask the DM and the lead's Direct sit right after Chat (build 28). On a
+// phone they used to take a whole strip above the message box and a button
+// inside it; here they cost the table nothing. Ask opens the same Ask strip
+// over the message box (AskPanel.tsx, still the only Ask surface), and
+// Direct switches the next send to a story direction, as the composer's
+// icon does on a wide screen. Either one brings the table back first when
+// another tab is showing, and lights while it is on.
 function BottomTabBarInner({
   tabs,
   mobileView,
@@ -205,6 +229,10 @@ function BottomTabBarInner({
   pendingCount,
   storyDue,
   steersStory,
+  askOpen,
+  askPending,
+  onAsk,
+  direct,
 }: {
   tabs: PanelTabDef[];
   mobileView: MobileView;
@@ -219,33 +247,82 @@ function BottomTabBarInner({
   // story; at a human-DM table the count is the DM's and the lead tab stays
   // quiet.
   steersStory: boolean;
+  // The Ask strip is open over the message box.
+  askOpen: boolean;
+  // A question is with the DM, so the cell shows it is still working after
+  // the strip is closed.
+  askPending: boolean;
+  onAsk: () => void;
+  // The lead's Direct, or null for a seat that cannot direct (a player who
+  // is not the lead, the DM seat).
+  direct: { on: boolean; onToggle: () => void } | null;
 }) {
+  const onTable = mobileView === "chat";
+  const askLit = onTable && askOpen;
+  const directLit = Boolean(direct?.on);
+  const tableCells = (
+    <>
+      <button
+        type="button"
+        onClick={onAsk}
+        data-tour="ask-dm"
+        aria-label="Ask the DM"
+        aria-current={askLit ? "page" : undefined}
+        className={cn(BAR_CELL, askLit && ui.railCellActive)}
+      >
+        <AskIcon />
+        <span className={BAR_LABEL}>Ask</span>
+        {askPending && !askLit ? (
+          <Loader2 aria-hidden="true" className="absolute right-1.5 top-1 size-3 animate-spin text-amber-300" />
+        ) : null}
+      </button>
+      {direct ? (
+        <button
+          type="button"
+          onClick={direct.onToggle}
+          data-tour="composer-direct"
+          data-on={directLit ? "" : undefined}
+          aria-label="Direct the story"
+          aria-pressed={directLit}
+          title={
+            directLit
+              ? "Directing the story. Press again to act as your character."
+              : "Party lead only. Send the DM an authoritative story direction."
+          }
+          className={cn(BAR_CELL, "cine-bar-direct", directLit && ui.railCellActiveEmber)}
+        >
+          <DirectIcon />
+          <span className={BAR_LABEL}>Direct</span>
+        </button>
+      ) : null}
+    </>
+  );
   return (
-    <nav className="cine-bottombar glass no-scrollbar flex items-stretch gap-1 overflow-x-auto border-t border-stone-700/40 px-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1 lg:hidden">
+    <nav className="cine-bottombar glass no-scrollbar flex items-stretch gap-0.5 overflow-x-auto border-t border-stone-700/40 px-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1 lg:hidden">
       <button
         type="button"
         onClick={onSelectChat}
-        aria-current={mobileView === "chat" ? "page" : undefined}
-        className={cn(ui.railCell, "shrink-0 grow basis-auto", mobileView === "chat" && ui.railCellActive)}
+        aria-current={onTable && !askOpen ? "page" : undefined}
+        className={cn(BAR_CELL, onTable && !askOpen && ui.railCellActive)}
       >
         <TableIcon />
-        <span className="eyebrow whitespace-nowrap text-[9px] leading-none">Table</span>
+        <span className={BAR_LABEL}>Table</span>
       </button>
       {tabs.map(([value, label, Icon]) => {
         const active = mobileView === "panel" && panelTab === value;
-        return (
+        const cell = (
           <button
             key={value}
             type="button"
             onClick={() => onSelectPanel(value)}
             data-tour={`tab-${value}`}
             aria-current={active ? "page" : undefined}
-            className={cn(ui.railCell, "shrink-0 grow basis-auto", tabAccentClass(value, active))}
+            className={cn(BAR_CELL, tabAccentClass(value, active))}
           >
             <Icon
               className={cn("size-5", value === "chat" && chatUnread > 0 && "animate-wiggle")}
             />
-            <span className="eyebrow whitespace-nowrap text-[9px] leading-none">{label}</span>
+            <span className={BAR_LABEL}>{label}</span>
             {value === "chat" && chatUnread > 0 ? (
               <span className="absolute left-1.5 top-1 size-1.5 rounded-full bg-red-500" />
             ) : null}
@@ -260,7 +337,17 @@ function BottomTabBarInner({
             ) : null}
           </button>
         );
+        return value === "chat" ? (
+          <Fragment key={value}>
+            {cell}
+            {tableCells}
+          </Fragment>
+        ) : (
+          <Fragment key={value}>{cell}</Fragment>
+        );
       })}
+      {/* Chat is on every seat's bar, so this is only a safety net. */}
+      {tabs.some(([value]) => value === "chat") ? null : tableCells}
     </nav>
   );
 }

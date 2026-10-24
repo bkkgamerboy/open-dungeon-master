@@ -31,6 +31,7 @@ export function SessionChatColumn({
   visible,
   askOpen,
   onAskOpenChange,
+  onAskPendingChange,
   refreshAsks,
   refreshFacts,
   onError,
@@ -52,6 +53,8 @@ export function SessionChatColumn({
   visible: boolean;
   askOpen: boolean;
   onAskOpenChange: (open: boolean) => void;
+  // A question went to the DM or came back (the phone bar's Ask cell).
+  onAskPendingChange?: (pending: boolean) => void;
   refreshAsks: () => Promise<void>;
   refreshFacts: () => Promise<void>;
   onError: (message: string) => void;
@@ -85,7 +88,12 @@ export function SessionChatColumn({
   const visibleUtilityCalls = utilityCalls.filter((call) => call.kind !== "ask");
 
   return (
-    <div className={cn("cine-chat min-w-0 flex-1 flex-col", visible ? "flex" : "hidden lg:flex", stage && "cine-chat-staged")}>
+    // data-asking: on a phone the open Ask strip is a view of its own (the
+    // bar's Ask cell, build 28), and the desk steps aside for it (world.css).
+    <div
+      className={cn("cine-chat min-w-0 flex-1 flex-col", visible ? "flex" : "hidden lg:flex", stage && "cine-chat-staged")}
+      data-asking={askOpen ? "" : undefined}
+    >
       <ReportDialog
         campaignId={campaignId}
         target={reportTarget}
@@ -274,6 +282,7 @@ export function SessionChatColumn({
         open={askOpen}
         onOpenChange={onAskOpenChange}
         onAsked={refreshAsks}
+        onPendingChange={onAskPendingChange}
       />
 
       {/* Directly above the composer, so the answer to "why is nothing

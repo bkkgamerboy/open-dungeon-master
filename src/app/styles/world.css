@@ -1387,6 +1387,9 @@ html[data-theme="light"] .ts-below .ts-ghost:hover { background: rgba(255, 252, 
   filter: none;
   opacity: 0.85;
 }
+/* The phone bar's paintings run a touch smaller than the rail's, so ten
+   cells fit a 412px phone (build 28, SessionTabs.tsx BAR_CELL). */
+.cine-stage .cine-bottombar .rail-glyph { width: 2rem; height: 2rem; }
 .cine-stage [aria-current="page"] > .rail-glyph { border-color: rgba(244, 224, 166, 0.9); box-shadow: 0 0 0 1px rgba(212, 171, 58, 0.5), 0 0 16px rgba(212, 171, 58, 0.45); opacity: 1; }
 .cine-stage .cine-bottombar { background: linear-gradient(180deg, rgba(10, 8, 23, 0.8), rgba(10, 8, 23, 0.97)); border-top-color: rgba(212, 171, 58, 0.2); backdrop-filter: none; -webkit-backdrop-filter: none; }
 
@@ -1760,6 +1763,36 @@ html[data-keyboard="open"] .hand-fan,
 html[data-keyboard="open"] .hand-aim,
 html[data-keyboard="open"] .hand-played { display: none; }
 html[data-keyboard="open"] .cine-chat { overflow-y: auto; }
+
+/* The phone bar's Ask and Direct (build 28, SessionTabs.tsx). Wherever the
+   bottom bar shows, its Ask cell opens the Ask strip and its Direct cell
+   arms a direction, so the strip's own header row and the composer's
+   Direct icon step aside: a closed strip costs the table no height and the
+   message box keeps the width. A fold opened flat has no bottom bar, so
+   both come back there. */
+/* With the strip open the phone is in the Ask view (the bar lights Ask, not
+   Table), so the desk, the Hand and the message box, steps aside until
+   Table is pressed: in a fight the strip, the Hand and the box together are
+   taller than the screen, and the box used to slide under the bar. Hidden,
+   not unmounted, so a half-typed move and the Hand both survive. */
+@media (width < 64rem) {
+  .ask-dock-head,
+  .composer-direct { display: none; }
+  .ask-dock:not([data-open]) { border-top-width: 0; }
+  .cine-chat[data-asking] .cine-desk { display: none; }
+}
+@media (horizontal-viewport-segments: 2) and (max-width: 1023px) {
+  .ask-dock-head { display: flex; }
+  .composer-direct { display: inline-flex; }
+  .ask-dock:not([data-open]) { border-top-width: 1px; }
+  .cine-chat[data-asking] .cine-desk { display: block; }
+}
+/* Direct lit: the lead's ember, as the Lead tab wears it. */
+.cine-stage .cine-bottombar .cine-bar-direct[data-on] > .rail-glyph {
+  border-color: rgba(255, 190, 143, 0.9);
+  box-shadow: 0 0 0 1px rgba(224, 112, 58, 0.5), 0 0 16px rgba(224, 112, 58, 0.45);
+  opacity: 1;
+}
 
 /* ---- reduced motion and low effects ---- */
 

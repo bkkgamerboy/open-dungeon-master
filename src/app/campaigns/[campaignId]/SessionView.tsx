@@ -705,11 +705,54 @@ export function SessionView({
       window.clearTimeout(off);
     };
   }, [turnTokenId, myTokenId, turnRound, turnChime, playSting]);
+  // Your turn, on a phone, ends the Ask view (build 28): with the strip open
+  // the desk is set aside (world.css), and the Hand coming back is how the
+  // turn shows there. A wide screen keeps the strip as it was. State from
+  // props during render, as the tab jumps in useSessionTabs do.
+  const myTurnKey = turnTokenId && turnTokenId === myTokenId ? `${turnTokenId}:${turnRound}` : "";
+  const [seenTurnKey, setSeenTurnKey] = useState("");
+  if (myTurnKey && myTurnKey !== seenTurnKey) {
+    setSeenTurnKey(myTurnKey);
+    if (!docked && askOpen) {
+      setAskOpen(false);
+    }
+  }
   // A pinned label on the board opens what it points at in a sheet.
   const [openedLabel, setOpenedLabel] = useState<MapLabel | null>(null);
   const labelMounted = useOpenedOnce(openedLabel !== null);
   const openLabel = setOpenedLabel;
-  const selectChatView = useCallback(() => setMobileView("chat"), [setMobileView]);
+  // The phone bar (build 28): Table is the table with the Ask strip closed,
+  // Ask is the table with it open, and Direct arms a direction on the table.
+  // Ask and Direct bring the table back first when another tab is showing.
+  const selectChatView = useCallback(() => {
+    setMobileView("chat");
+    setAskOpen(false);
+  }, [setMobileView]);
+  const toggleAskView = useCallback(() => {
+    if (mobileView !== "chat") {
+      setMobileView("chat");
+      setAskOpen(true);
+      return;
+    }
+    setAskOpen((open) => !open);
+  }, [mobileView, setMobileView]);
+  // Whether a question is with the DM, for the Ask cell once the strip is shut.
+  const [askPending, setAskPending] = useState(false);
+  const canDirect = steersStory && !isDm;
+  const toggleDirect = useCallback(() => {
+    // A direction is typed in the message box, so the strip gets out of its way.
+    setAskOpen(false);
+    if (mobileView !== "chat") {
+      setMobileView("chat");
+      setKind("lead");
+      return;
+    }
+    setKind((current) => (current === "lead" ? "do" : "lead"));
+  }, [mobileView, setMobileView]);
+  const barDirect = useMemo(
+    () => (canDirect ? { on: kind === "lead", onToggle: toggleDirect } : null),
+    [canDirect, kind, toggleDirect],
+  );
   const selectPanelView = useCallback(
     (tab: PanelTab) => {
       openTab(tab);
@@ -1042,6 +1085,7 @@ export function SessionView({
                 visible={mobileView === "chat"}
                 askOpen={askOpen}
                 onAskOpenChange={setAskOpen}
+                onAskPendingChange={setAskPending}
                 refreshAsks={refreshAsks}
                 refreshFacts={refreshFacts}
                 onError={setError}
@@ -1159,6 +1203,10 @@ export function SessionView({
         pendingCount={pendingNoteCount}
         storyDue={storyDue}
         steersStory={steersStory}
+        askOpen={askOpen}
+        askPending={askPending}
+        onAsk={toggleAskView}
+        direct={barDirect}
       />
 
       {dice3d ? <DiceOverlay latestRoll={state.latestRoll} enabled /> : null}

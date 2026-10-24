@@ -21,6 +21,13 @@ export const TAB_GLYPHS: Record<TableTabId, string> = {
 // The "Table" cell of the phone's bottom bar: the transcript itself.
 export const TABLE_GLYPH = "tab-session";
 
+// The phone bar's Ask and Direct cells (build 28). Ask keeps the lectern the
+// Ask strip has always worn. Direct takes the quill rather than the lead's
+// lantern, because on the bar it sits a few cells from the Lead tab and two
+// lanterns would read as one control twice.
+export const ASK_GLYPH = "tab-reference";
+export const DIRECT_GLYPH = "ui-edit";
+
 // Second-level pills (SubTabs). A panel may pass a section this map does not
 // know; the pill then keeps the line icon it was given.
 export const SUBTAB_GLYPHS: Record<string, string> = {

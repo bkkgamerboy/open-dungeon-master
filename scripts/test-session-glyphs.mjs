@@ -7,7 +7,7 @@ import { register } from "node:module";
 
 register("./lib/register-alias.mjs", import.meta.url);
 
-const { TAB_GLYPHS, TABLE_GLYPH, SUBTAB_GLYPHS, MODE_GLYPHS } = await import(
+const { TAB_GLYPHS, TABLE_GLYPH, ASK_GLYPH, DIRECT_GLYPH, SUBTAB_GLYPHS, MODE_GLYPHS } = await import(
   "../src/app/campaigns/[campaignId]/sessionGlyphs.ts"
 );
 const { SYSTEM_GLYPHS, isSystemGlyph } = await import("../src/lib/system-glyphs.ts");
@@ -24,6 +24,8 @@ test("every mapped glyph is a file that ships", () => {
   const names = [
     ...Object.values(TAB_GLYPHS),
     TABLE_GLYPH,
+    ASK_GLYPH,
+    DIRECT_GLYPH,
     ...Object.values(SUBTAB_GLYPHS),
     ...Object.values(MODE_GLYPHS),
   ];
@@ -36,6 +38,12 @@ test("every panel tab has a painting", () => {
   for (const id of TABLE_TAB_IDS ?? ["dm", "lead", "party", "battle", "map", "story", "notes", "chat", "context", "settings"]) {
     assert.ok(TAB_GLYPHS[id], `no glyph for the ${id} tab`);
   }
+});
+
+// The phone bar's Direct sits a few cells from the Lead tab (build 28).
+test("the bar's Direct does not wear the Lead tab's painting", () => {
+  assert.notEqual(DIRECT_GLYPH, TAB_GLYPHS.lead);
+  assert.notEqual(ASK_GLYPH, DIRECT_GLYPH);
 });
 
 test("every composer mode has a painting", () => {

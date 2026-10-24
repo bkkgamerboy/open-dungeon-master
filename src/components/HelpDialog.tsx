@@ -107,7 +107,8 @@ export function HelpDialog({
           and asks for dice rolls when the rules call for them.
         </p>
         <ModeRow label="Direct" lead>
-          Party lead only: the icon beside the microphone. While it is on, what you send is not
+          Party lead only: the icon beside the microphone, or on a phone the{" "}
+          <span className="text-stone-300">Direct</span> button on the bottom bar. While it is on, what you send is not
           your character&apos;s action but an authoritative story direction the DM must weave into the
           tale, or arm one of the seven canned events: Combat, Place, Social, Romance, Mystery,
           Weird or Windfall. Turn on <span className="text-stone-300">Private</span> and the
@@ -117,8 +118,9 @@ export function HelpDialog({
         </ModeRow>
         <p>
           Questions are not one of these buttons. Open the{" "}
-          <span className="text-stone-300">Ask the DM</span> strip just above the message box and
-          use its own question box. Set <span className="text-stone-300">About</span> to Auto,
+          <span className="text-stone-300">Ask the DM</span> strip just above the message box (on a
+          phone, press <span className="text-stone-300">Ask</span> on the bottom bar) and use its
+          own question box. Set <span className="text-stone-300">About</span> to Auto,
           Story, Rules or My sheet to say where the answer should come from, and{" "}
           <span className="text-stone-300">Seen by</span> to Just me or The table to say who reads
           it. Answers quote what the campaign has on record under{" "}

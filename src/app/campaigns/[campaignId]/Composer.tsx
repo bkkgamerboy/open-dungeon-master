@@ -48,10 +48,12 @@ const KIND_TIPS: Record<InputKind, string> = {
 // floor banners, the join notice and the input row. A player writes what
 // their character does or says in plain words ("I...", "say..."), so there
 // is no row of Do, Say and OOC pills (build 24); the lead's Direct is an icon
-// beside the microphone. The person in a DM seat keeps Narrate and OOC.
+// beside the microphone, or on a phone a cell of the bottom bar (build 28).
+// The person in a DM seat keeps Narrate and OOC.
 //
 // Asking the DM a question is NOT a mode here. It lives entirely in the Ask
-// strip just above this composer (AskPanel.tsx), which has its own box. An
+// strip just above this composer (AskPanel.tsx), which has its own box and,
+// on a phone, opens from the bottom bar's Ask cell. An
 // "Ask" pill in this row would be the same feature offered twice, inches
 // apart, which is exactly what it used to be.
 function ComposerInner({
@@ -346,7 +348,9 @@ function ComposerInner({
             </Tooltip>
           ) : null}
           {/* Direct, the lead's story direction: one icon beside the
-              microphone, on while the next send is a direction. */}
+              microphone, on while the next send is a direction. Wherever
+              the phone bar shows, its Direct cell stands in for this one
+              and the box keeps the width (build 28, world.css). */}
           {steersStory && !isDm ? (
             <Tooltip content={kind === "lead" ? "Directing the story. Press again to act as your character." : KIND_TIPS.lead}>
               <button
@@ -358,7 +362,7 @@ function ComposerInner({
                 data-on={kind === "lead" ? "" : undefined}
                 className={cn(
                   ui.btnSmall,
-                  "session-deskbtn",
+                  "session-deskbtn composer-direct",
                   kind === "lead" ? "border-amber-500/70 bg-amber-500/15 text-amber-200" : "text-stone-400",
                 )}
               >

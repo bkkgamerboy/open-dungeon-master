@@ -30,7 +30,7 @@ export const PLAYER_TOUR: TourStep[] = [
   {
     id: "direct",
     title: "Direct the story",
-    body: "As party lead you can steer the story itself. Press this beside the microphone and what you send is a direction the Dungeon Master must weave in, not your character's action; press it again to play your character.",
+    body: "As party lead you can steer the story itself. Press Direct (beside the microphone, or on a phone's bottom bar) and what you send is a direction the Dungeon Master must weave in, not your character's action; press it again to play your character.",
     anchors: ["composer-direct"],
     prepare: "show-chat",
   },
@@ -51,7 +51,7 @@ export const PLAYER_TOUR: TourStep[] = [
   {
     id: "ask",
     title: "Ask the DM",
-    body: "Questions about the story, the rules or your sheet go here, not in the message box. Asking never moves the story on, so it works even while the floor is locked.",
+    body: "Questions about the story, the rules or your sheet go here, not in the message box: this opens the Ask strip with its own question box. Asking never moves the story on, so it works even while the floor is locked.",
     anchors: ["ask-dm"],
     prepare: "show-chat",
   },

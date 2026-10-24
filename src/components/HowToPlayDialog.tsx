@@ -86,7 +86,8 @@ export function HowToPlayDialog({
         </p>
         <p>
           To ask the DM a question about the story, the world, the rules, or your sheet, open the{" "}
-          <span className="text-stone-300">Ask the DM</span> strip just above the message box. The
+          <span className="text-stone-300">Ask the DM</span> strip just above the message box (on a
+          phone, press <span className="text-stone-300">Ask</span> on the bottom bar). The
           answer quotes what the campaign has on record, and you choose whether it is just for you
           or for the whole table. Asking never moves the story on, so it works even while the floor
           is locked.

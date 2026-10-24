@@ -105,6 +105,12 @@ function AskEntry({ ask, meUserId }: { ask: CampaignAsk; meUserId: string }) {
 //
 // Collapsing HIDES rather than unmounts, so a half-typed question and the
 // thread's scroll position both survive a collapse.
+//
+// On a phone the toggle row is not drawn (build 28): the Ask cell on the
+// bottom bar (SessionTabs.tsx) opens and closes this same strip, so a closed
+// strip costs the table no height at all. It is still one surface, opened
+// from two places only in the sense that the header moved; there is no
+// second box.
 function AskDockInner({
   campaignId,
   asks,
@@ -113,6 +119,7 @@ function AskDockInner({
   open,
   onOpenChange,
   onAsked,
+  onPendingChange,
 }: {
   campaignId: string;
   asks: CampaignAsk[];
@@ -122,6 +129,9 @@ function AskDockInner({
   onOpenChange: (open: boolean) => void;
   // Refetches the thread once an answer lands.
   onAsked: () => Promise<void>;
+  // A question went to the DM (true) or came back (false), for the phone
+  // bar's Ask cell, which is the only sign of it once the strip is closed.
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const [question, setQuestion] = useState("");
   const [scope, setScope] = useState<AskScope | "auto">("auto");
@@ -153,6 +163,7 @@ function AskDockInner({
       setSending(true);
       setError("");
       setPendingQuestion(text);
+      onPendingChange?.(true);
       try {
         const response = await fetch(`/api/campaigns/${campaignId}/ask`, {
           method: "POST",
@@ -171,20 +182,23 @@ function AskDockInner({
       } finally {
         setSending(false);
         setPendingQuestion("");
+        onPendingChange?.(false);
       }
     },
-    [campaignId, question, scope, sending, visibility, onAsked],
+    [campaignId, question, scope, sending, visibility, onAsked, onPendingChange],
   );
 
   const answered = asks.length;
   return (
-    <div className="border-t border-stone-900">
+    // Wherever the phone bar shows, a closed strip draws nothing, not even
+    // its rule (world.css, "the phone bar's Ask and Direct").
+    <div className="ask-dock border-t border-stone-900" data-open={open ? "" : undefined}>
       <button
         type="button"
         onClick={() => onOpenChange(!open)}
         data-tour="ask-dm"
         aria-expanded={open}
-        className="pk-tap flex w-full items-center gap-1.5 px-3 py-1.5 text-xs text-stone-400 transition-colors hover:text-amber-100 motion-press"
+        className="ask-dock-head pk-tap flex w-full items-center gap-1.5 px-3 py-1.5 text-xs text-stone-400 transition-colors hover:text-amber-100 motion-press"
       >
         <GameIcon icon={{ kind: "glyph", key: "tab-reference" }} size="size-5" />
         <span className="eyebrow text-[11px] text-amber-300/90">Ask the DM</span>
