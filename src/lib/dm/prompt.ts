@@ -1242,7 +1242,8 @@ export const requestPlayerInputTool = {
         },
         prompt: {
           type: "string",
-          description: "Short statement of what you need from them.",
+          description:
+            "Short statement of what you need from them, for the record. The table does not show it, so ask the question itself in your narration.",
         },
       },
       required: ["characterIds"],

@@ -133,7 +133,8 @@ export function HelpDialog({
         </p>
         <p>
           Sometimes the DM puts one player in the spotlight and waits for them to act. While the
-          floor is locked for you, a banner explains why, and the Ask strip still works.
+          floor is locked for you, the message box says who the DM is waiting on, and the Ask strip
+          still works.
           Small chips above the message box name the background work the engine is doing between
           turns, such as compacting history, sealing a chapter, running the world tick or answering
           an Ask, with how long it has been going.

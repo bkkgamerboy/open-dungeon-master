@@ -1141,7 +1141,6 @@ export function SessionView({
                     pendingRolls={pendingRolls}
                     members={state.members}
                     floor={floor}
-                    spotlighted={gate.spotlighted}
                     heldSpotlightNames={gate.heldSpotlightNames}
                     encounter={state.encounter}
                     onReleaseFloor={releaseFloor}

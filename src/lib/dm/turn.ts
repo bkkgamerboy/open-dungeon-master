@@ -2178,9 +2178,11 @@ function parseSpotlightUserIds(
 }
 
 // What request_player_input reports back. Only a spotlight hands the floor
-// over and shows its prompt; in a fight the initiative order keeps the
-// floor, and a call naming no player's character hands it to nobody. In
-// both of those the question reaches the table only if the narration asks it.
+// over; in a fight the initiative order keeps the floor, and a call naming
+// no player's character hands it to nobody. In every case the question
+// reaches the table only if the narration asks it: the spotlight's card
+// above the message box, which used to show the prompt, is gone (build 28,
+// FloorBanners.tsx).
 function playerInputResult(
   spotlightSet: boolean,
   inFight: boolean,
@@ -2188,7 +2190,12 @@ function playerInputResult(
 ): { ok: boolean; note: string } {
   const stop = narrateNow ? " Narrate the moment and stop." : "";
   if (spotlightSet) {
-    return { ok: true, note: narrateNow ? "The floor is theirs. Narrate the moment and stop." : "Floor updated." };
+    return {
+      ok: true,
+      note: narrateNow
+        ? "The floor is theirs. The table does not show your prompt: narrate the moment, ask the question in it, and stop."
+        : "The floor is theirs. The table does not show your prompt, so your narration carries the question.",
+    };
   }
   if (inFight) {
     return {

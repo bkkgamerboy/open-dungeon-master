@@ -76,7 +76,6 @@ function ComposerInner({
   pendingRolls,
   members,
   floor,
-  spotlighted,
   heldSpotlightNames,
   encounter,
   onReleaseFloor,
@@ -119,7 +118,6 @@ function ComposerInner({
   // For the pending cards: who holds their own rolls (shake to roll).
   members: CampaignState["members"];
   floor: Parameters<typeof FloorBanners>[0]["floor"];
-  spotlighted: CampaignState["sheets"];
   heldSpotlightNames: string[];
   encounter: CampaignState["encounter"];
   onReleaseFloor: () => Promise<void>;
@@ -183,7 +181,6 @@ function ComposerInner({
         <FloorBanners
           campaignId={campaignId}
           floor={floor}
-          spotlighted={spotlighted}
           heldSpotlightNames={heldSpotlightNames}
           encounter={encounter}
           steersStory={steersStory}

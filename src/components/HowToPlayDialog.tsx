@@ -109,8 +109,8 @@ export function HowToPlayDialog({
           already in progress.
         </p>
         <p>
-          Sometimes the DM puts one player in the spotlight and waits for them, and a banner will
-          tell you when that is why you cannot act.
+          Sometimes the DM puts one player in the spotlight and waits for them; the message box
+          says who it is waiting on when that is why you cannot act.
         </p>
       </Section>
 
@@ -135,7 +135,8 @@ export function HowToPlayDialog({
           The Help entry, in the account menu here and in the header during a session, walks through
           every button and panel: the side panel tabs, the Ask strip, the per-message actions, dice
           options, narration voice, notes, whispers, world packs and the party lead&apos;s powers.
-          If a spotlight leaves the table stuck, the party lead can release it.
+          If a spotlight leaves the table stuck, the party lead can open the floor from the Lead
+          tab.
         </p>
       </Section>
     </Dialog>
