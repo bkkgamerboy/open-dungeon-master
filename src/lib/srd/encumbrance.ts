@@ -23,6 +23,24 @@ import { magicItemRiders, type Wearer, type WornMagicItem } from "@/lib/srd/magi
 // 50 coins weigh a pound, whatever the metal.
 export const COINS_PER_POUND = 50;
 
+// The purse is weighed as platinum (build 29). A sheet stores money as a
+// value, whole gold pieces plus a copper remainder (src/lib/srd/currency.ts),
+// not as the coins themselves, and the load used to count every gold piece
+// of that value as a coin. So a hoard of platinum, recorded as the gold it is
+// worth, weighed ten times what the party had picked up: 39,949 gp came to
+// 799 lb on a rogue who was carrying platinum. The value is now carried in
+// the densest coin there is, one platinum piece per 10 gp (rounded up to a
+// whole coin), 50 to the pound: 500 gp of value to the pound.
+//
+// The reference desk's carrying calculator (src/lib/reference/calculators.ts)
+// still takes a count of actual coins, so it keeps 50 to the pound as it is.
+export const GOLD_PER_PURSE_COIN = 10;
+
+// How many coins a purse of this many gold pieces is carried as.
+export function purseCoins(gold: number): number {
+  return Math.ceil(Math.max(0, gold) / GOLD_PER_PURSE_COIN);
+}
+
 // `qty` is optional because the lighter sheet shapes elsewhere in the app
 // (the AC source, the builder's preview) carry only a name; a line without
 // one counts as a single item.
@@ -164,11 +182,14 @@ export function sortLoadLines(lines: LoadLine[], key: LoadSort, order: LoadOrder
   return [...known, ...unknown];
 }
 
-// What the purse weighs, to the hundredth the total is shown in.
-export function coinWeightLb(coins: number): number {
-  return round2(Math.max(0, coins) / COINS_PER_POUND);
+// What the purse weighs, to the hundredth the total is shown in. `gold` is
+// the sheet's gold pieces of value, weighed as platinum (purseCoins).
+export function coinWeightLb(gold: number): number {
+  return round2(purseCoins(gold) / COINS_PER_POUND);
 }
 
+// `coins` is the purse in gold pieces (sheet.gold), as every caller has
+// always passed it; it is weighed as platinum (coinWeightLb).
 export function carriedWeight(
   equipment: CarriedItem[],
   coins = 0,
@@ -197,6 +218,7 @@ export function carriedWeight(
 export function encumbranceFor(input: {
   strength: number;
   equipment: CarriedItem[];
+  // The purse in gold pieces (sheet.gold), weighed as platinum.
   coins?: number;
   size?: string;
   wearer?: Wearer;
