@@ -7,7 +7,7 @@ import type { CharacterSheet } from "@/lib/schemas/sheet";
 import { LEAD_NOTE_PREFIX, type CampaignMember } from "@/lib/campaign-types";
 import { heldRollUserIds } from "@/lib/dice/held-rolls";
 import { computeSheetDerived, findSkill, formatModifier, sizeForRace, speedFor, SRD_SKILLS } from "@/lib/srd";
-import { encumbranceFor } from "@/lib/srd/encumbrance";
+import { coinWeightLb, encumbranceFor } from "@/lib/srd/encumbrance";
 import { classFeatureDescription, findCustomClass } from "@/lib/classes";
 import { resourceDef } from "@/lib/srd/class-resources";
 import { featEngineTag } from "@/lib/srd/feat-combat";
@@ -487,8 +487,12 @@ export function describeSheet(
         size: sizeForRace(sheet.race),
       })
     : null;
+  // The purse's share is said outright (build 29): it is weighed as
+  // platinum, and a DM left to work it out counted every gold piece of value
+  // as a coin, ten times the weight.
+  const purseLb = coinWeightLb(sheet.gold ?? 0);
   const loadLine = load
-    ? `  Carrying ${load.carriedLb} lb of a ${load.capacityLb} lb capacity${load.unweighed ? ` (${load.unweighed} item${load.unweighed === 1 ? "" : "s"} of unknown weight, so the total is a floor)` : ""}${load.note ? `: ${load.note}` : ""}${load.overCapacity ? ". OVER CAPACITY: they cannot pick up anything more." : ""}`
+    ? `  Carrying ${load.carriedLb} lb of a ${load.capacityLb} lb capacity${load.unweighed ? ` (${load.unweighed} item${load.unweighed === 1 ? "" : "s"} of unknown weight, so the total is a floor)` : ""}${purseLb ? `, ${purseLb} lb of it coin (the purse is carried as platinum: 500 gp to the pound)` : ""}${load.note ? `: ${load.note}` : ""}${load.overCapacity ? ". OVER CAPACITY: they cannot pick up anything more." : ""}`
     : null;
   const lines = [
     `- ${sheet.name} (${sizeForRace(sheet.race)} ${sheet.race.replaceAll("_", " ")} ${classLabel}) characterId=${sheet.id} played by ${playedBy}${realDice ? " (rolls PHYSICAL dice)" : ""}`,

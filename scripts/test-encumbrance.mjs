@@ -10,6 +10,8 @@ const {
   carryMultiplier,
   coinWeightLb,
   COINS_PER_POUND,
+  GOLD_PER_PURSE_COIN,
+  purseCoins,
   encumbranceCovers,
   encumbranceFor,
   lineWeightLb,
@@ -61,9 +63,23 @@ test("unweighed items are counted, not guessed at", () => {
   assert.deepEqual(carriedWeight(pack), { pounds: 2, unweighed: 2 });
 });
 
-test("coins weigh 50 to the pound", () => {
+// Build 29: the purse is gold pieces of value, carried as platinum (one
+// coin per 10 gp, rounded up), 50 coins to the pound: 500 gp to the pound.
+test("the purse is weighed as platinum: 500 gp to the pound", () => {
   assert.equal(COINS_PER_POUND, 50);
-  assert.equal(carriedWeight([], 500).pounds, 10);
+  assert.equal(GOLD_PER_PURSE_COIN, 10);
+  assert.equal(carriedWeight([], 500).pounds, 1);
+  assert.equal(carriedWeight([], 25_000).pounds, 50);
+  assert.equal(purseCoins(0), 0);
+  assert.equal(purseCoins(-5), 0);
+  // Part of a platinum piece's worth is still a coin in the purse.
+  assert.equal(purseCoins(1), 1);
+  assert.equal(purseCoins(10), 1);
+  assert.equal(purseCoins(11), 2);
+  // The purse that weighed 798.98 lb as gold pieces on the table that
+  // asked for this: 3,995 platinum, 79.9 lb.
+  assert.equal(purseCoins(39_949), 3_995);
+  assert.equal(coinWeightLb(39_949), 79.9);
 });
 
 test("an ordinary pack encumbers nobody", () => {
@@ -188,9 +204,9 @@ test("every line is listed, worn or packed, known or not, and reconciles", () =>
   assert.equal(lines[3].totalLb, null);
   assert.equal(lines[5].eachLb, null);
   assert.equal(lines[5].qty, 2);
-  // 137 gold coins: 2.74 lb, the figure the breakdown prints.
-  assert.equal(coinWeightLb(137), 2.74);
-  assert.deepEqual(carriedWeight(pack, 137), { pounds: 55 + 3 + 10 + 1 + 2.74, unweighed: 2 });
+  // 137 gp, carried as 14 platinum: 0.28 lb, the figure the breakdown prints.
+  assert.equal(coinWeightLb(137), 0.28);
+  assert.deepEqual(carriedWeight(pack, 137), { pounds: 55 + 3 + 10 + 1 + 0.28, unweighed: 2 });
 });
 
 test("sorting by line total or weight each, both ways, unknowns last", () => {

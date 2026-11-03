@@ -284,10 +284,15 @@ await test("the thresholds move with Strength", () => {
   weighed.table.patch(weighed.porter.id, { abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 } });
 });
 
-await test("coins weigh 50 to the pound and count toward the load", () => {
+// Build 29: the purse is carried as platinum, 500 gp to the pound. At STR
+// 10 the load slows past 50 lb: 45 lb of gear and 2,500 gp (250 pp, 5 lb)
+// is exactly 50, and 10 gp more is one more coin over it.
+await test("the purse counts toward the load, weighed as platinum", () => {
   weighed.carry(50, 0);
   assert.equal(weighed.speed(), 30);
-  weighed.carry(50, 100);
+  weighed.carry(45, 2_500);
+  assert.equal(weighed.speed(), 30);
+  weighed.carry(45, 2_510);
   assert.equal(weighed.speed(), 20);
 });
 

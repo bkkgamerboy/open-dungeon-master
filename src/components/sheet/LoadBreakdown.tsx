@@ -9,6 +9,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import {
   coinWeightLb,
   COINS_PER_POUND,
+  purseCoins,
   loadLines,
   sortLoadLines,
   type Encumbrance,
@@ -140,13 +141,16 @@ export function LoadBreakdown({
           </tbody>
           <tfoot>
             <tr>
+              {/* The purse is weighed as platinum (build 29,
+                  src/lib/srd/encumbrance.ts purseCoins): the count is the
+                  platinum pieces the gold value is carried as. */}
               <th scope="row">
-                <span className="block text-stone-200">Coins</span>
+                <span className="block text-stone-200">Coins, as platinum</span>
                 <span className="block text-[11px] text-stone-500">
-                  {coins} gp, {COINS_PER_POUND} to the pound
+                  {coins.toLocaleString("en-US")} gp carried as {purseCoins(coins).toLocaleString("en-US")} pp, {COINS_PER_POUND} to the pound
                 </span>
               </th>
-              <td className="load-num">{coins}</td>
+              <td className="load-num">{purseCoins(coins).toLocaleString("en-US")}</td>
               <td className="load-num">{pounds(1 / COINS_PER_POUND, 3)}</td>
               <td className="load-num">{pounds(coinWeightLb(coins), 2)}</td>
             </tr>
