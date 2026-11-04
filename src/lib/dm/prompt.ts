@@ -1281,7 +1281,7 @@ export const movePartyTool = {
         layoutDescription: {
           type: "string",
           description:
-            "Physical layout: rooms, exits, landmarks, spatial relationships. 2-5 sentences.",
+            "Physical layout: size and shape, light, every exit and where it is (compass direction or ahead/left/right/behind), landmarks, spatial relationships. 2-5 sentences.",
         },
         connections: {
           type: "array",

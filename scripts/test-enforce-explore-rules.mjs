@@ -299,6 +299,74 @@ await test("The location rule puts move_party in the reply that narrates the arr
   assert.ok(travel.function.description.includes("It moves no one on the map: when the leg ends somewhere the story names, that place is a move_party call."), "travel's description does not send the arrival to move_party");
 });
 
+// Build 30: a declared move no longer stops at every grille and door, and an
+// arrival leads with the room's shape and exits before its mood.
+await test("Exploration pacing carries a declared move through routine barriers to the next real decision point, and an arrival opens with size, shape, light and every visible exit.", async () => {
+  const { dmSystemText, movePartyTool } = await import("../src/lib/dm/prompt.ts");
+  const text = dmSystemText(false);
+  const lines = text.split("\n");
+  assert.equal(text.includes("only up to the FIRST obstacle"), false, "the old stop-at-every-obstacle wording still stands");
+  const puppet = lines.find((line) => line.startsWith("- NEVER invent a player character's actions")) ?? "";
+  assert.ok(puppet.includes("Getting past routine barriers on the way is part of the declared move"), "the no-puppeting rule still treats a routine barrier as an invented action");
+  const pacing = lines.find((line) => line.startsWith("- Exploration pacing:")) ?? "";
+  assert.ok(pacing, "the prompt has no exploration pacing rule");
+  for (const phrase of [
+    "through every ROUTINE barrier on the way in the same reply, with no stop and no roll",
+    "a grate or grille someone in the party could lift or force",
+    "When failing would cost only time",
+    "never make them declare it barrier by barrier",
+    "an empty room with only one other way on is part of the stretch",
+    "Stop ONLY at a real decision point",
+    "a creature, NPC or enemy",
+    "locked, trapped, warded, guarded, or loud enough",
+    "anything that could hide a door, a passage, a cache or a trap",
+    "without tipping whether something is actually hidden there",
+    "still goes through check_notice first",
+    "do not recycle a beat",
+  ]) {
+    assert.ok(pacing.includes(phrase), `the pacing rule never says "${phrase}"`);
+  }
+  const arrival = lines.find((line) => line.startsWith("- Arrivals:")) ?? "";
+  assert.ok(arrival, "the prompt has no arrival rule");
+  for (const phrase of [
+    "before any atmosphere",
+    "its size and shape in plain terms",
+    "the light",
+    "every exit they can see and where it is",
+    "including the way they came in",
+    "Never leave a visible exit unmentioned",
+    "a hidden one stays unmentioned until someone notices it",
+  ]) {
+    assert.ok(arrival.includes(phrase), `the arrival rule never says "${phrase}"`);
+  }
+  const location = lines.find((line) => line.startsWith("- Keep the party's location current")) ?? "";
+  assert.ok(location.includes("call move_party for each in the order they pass through, ending with the one where they stop"), "the location rule does not record the places a stretch passes through");
+  const replies = lines.find((line) => line.startsWith("- Keep replies to")) ?? "";
+  assert.ok(replies.includes("a routine stretch on the way to the next decision point (see exploration pacing) is part of that beat"), "the one-beat rule still splits a routine stretch into beats");
+  assert.ok(text.includes("a routine grate or door on the way is exploration pacing's and needs no lift"), "the lift rule still sends every grate through lift");
+  assert.ok(text.includes("a routine barrier on the way is exploration pacing's, and passes without it"), "the object rule still sends every door through damage_object");
+  const layout = movePartyTool.function.parameters.properties.layoutDescription.description;
+  assert.ok(layout.includes("size and shape, light, every exit and where it is"), "move_party's layout does not ask for the shape and the exits");
+});
+
+await test("A stretch through several places in one reply, moved in order, leaves the party in the last one with each place recorded once.", async () => {
+  const quiet = { visionClear: false };
+  for (const [name, layoutDescription] of [
+    ["Grille Passage", "A low brick tunnel about five feet wide running north, a rusted grille at each end."],
+    ["Drain Junction", "A round chamber about 20 feet across, an arch north and the tunnel back south."],
+    ["Pump Hall", "A long hall 60 feet by 20, lit by a grate in the ceiling; doors east and west, the arch back south."],
+  ]) {
+    const out = await world.invoke("move_party", { ...quiet, name, layoutDescription });
+    assert.equal(out.ok, true, out.error);
+  }
+  const here = getCurrentLocation(world.campaignId);
+  assert.equal(here.name, "Pump Hall", "the stretch did not end where the party stopped");
+  assert.ok(here.layoutDescription.startsWith("A long hall 60 feet by 20"), "the stop lost its layout");
+  for (const name of ["Grille Passage", "Drain Junction", "Pump Hall"]) {
+    assert.equal(listLocations(world.campaignId).filter((place) => place.name === name).length, 1, `${name} was not recorded once`);
+  }
+});
+
 await test("A return through move_party that leaves out the layout keeps the place's recorded layout and routes, routes it passes are added to the known ones, and travel in between moves no one.", async () => {
   const quiet = { visionClear: false };
   const first = await world.invoke("move_party", { ...quiet, name: "The Rusted Flagon", layoutDescription: "A low taproom, the hearth on the north wall, the door east to the street.", connections: ["Market Square", "Back Alley"] });
