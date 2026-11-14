@@ -11,6 +11,7 @@ import { listEnemies } from "@/lib/db/encounters";
 import { mirrorImageDecoy, sanctuaryRefusal } from "@/lib/dm/spell-defenses";
 import { enfeebledBlow, spellRetort, spendEnemyRiders } from "@/lib/dm/spell-retort";
 import { z } from "zod";
+import { revealOnAct } from "@/lib/dm/reveal";
 import { allocateSeq, type Campaign } from "@/lib/db/campaigns";
 import {
   getActiveEncounter,
@@ -171,7 +172,9 @@ export function handleEnemyAttack(
   // character holds a readied action, an enemy out of reach stays put.
   const spatial = approachTarget(campaign, encounter.id, enemy, target.id, leadProfile(profiles), readiedHolder(campaign.id));
   if (spatial.blocked) {
-    return spatial.blocked;
+    // An ambusher that broke cover to close in was seen doing it, even when
+    // it fell short of its target (src/lib/dm/reveal.ts).
+    return spatial.movedTo ? { ...spatial.blocked, ...revealOnAct(campaign.id, enemy.id, "acts") } : spatial.blocked;
   }
   // A walk that took it out of a grappled creature's reach let go.
   releaseGrapplesOutOfReach(campaign);
@@ -188,6 +191,9 @@ export function handleEnemyAttack(
       note: `${enemy.displayName} was struck down on its way to ${target.name} and never made the attack.`,
     };
   }
+  // An ambusher that attacks gives away where it is (src/lib/dm/reveal.ts),
+  // before the effect is drawn so the party sees the blow land.
+  const revealed = revealOnAct(campaign.id, enemy.id, "acts");
   // Where the two stand after the approach, for the effect and the target
   // line every client draws (src/lib/battlemap/fx-plan.ts).
   const attackerPos = tokenPosition(campaign.id, enemy.id);
@@ -484,6 +490,7 @@ export function handleEnemyAttack(
     ...(notes.length ? { conditionEffects: notes } : {}),
     ...(targetHp ? { targetHp } : {}),
     ...(dropped ? { dropped: true, note: `${target.name} falls to 0 HP.` } : {}),
+    ...revealed,
   };
 }
 

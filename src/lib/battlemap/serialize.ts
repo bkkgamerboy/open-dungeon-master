@@ -96,7 +96,10 @@ export function serializeMapForPrompt(
     const glyph = glyphs.get(token.id) ?? "?";
     const ref = token.kind === "enemy" ? ` [enemyId=${token.refId}]` : "";
     const status = statuses?.get(token.refId);
-    return `${glyph}=${token.name} (${token.kind === "pc" ? "PC" : "enemy"})${ref} at (${token.x},${token.y})${status ? ` [${status}]` : ""}`;
+    // A hidden enemy is off the party's map until it acts or reveal_enemy
+    // brings it into view (src/lib/dm/reveal.ts).
+    const unseen = token.kind === "enemy" && token.hidden ? " [hidden from the party]" : "";
+    return `${glyph}=${token.name} (${token.kind === "pc" ? "PC" : "enemy"})${ref} at (${token.x},${token.y})${unseen}${status ? ` [${status}]` : ""}`;
   });
   lines.push(`Combatants: ${tokenLines.join("; ")}`);
 

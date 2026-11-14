@@ -8,6 +8,7 @@ import { spellFactsFor } from "@/lib/content";
 import { bindsWorthResisting } from "@/lib/dm/legendary-logic";
 import { elementalAdeptApplies, floorDamageDice } from "@/lib/srd/feat-combat";
 import { z } from "zod";
+import { revealOnAct } from "@/lib/dm/reveal";
 import { allocateSeq, type Campaign } from "@/lib/db/campaigns";
 import { getActiveEncounter, getEnemy, type EncounterEnemy } from "@/lib/db/encounters";
 import { insertRoll, type RollAttacker } from "@/lib/db/rolls";
@@ -252,6 +253,10 @@ export function handleAoeDamage(
   // (src/lib/dm/enemy-casting.ts). Only a block that lists nothing keeps the
   // caller's numbers.
   let enemyUse: EnemyUse | null = null;
+  // An unseen caster gives itself away by casting (src/lib/dm/reveal.ts),
+  // once this blast's card is drawn: it reads "Someone unseen", and the
+  // caster's token appears where the spell came from.
+  let revealed: { revealed?: string } = {};
   if (args.casterEnemyId) {
     const prepared = prepareEnemyUse(campaign, {
       casterEnemyId: args.casterEnemyId,
@@ -332,6 +337,9 @@ export function handleAoeDamage(
       : awayCaster
         ? { kind: "sheet", id: awayCaster.id, name: awayCaster.name }
         : null;
+  if (enemyUse) {
+    revealed = revealOnAct(campaign.id, enemyUse.enemy.id, "acts");
+  }
   const areaName = plan ? plan.spell : enemyUse?.name || null;
   if (typeof args.damage === "number") {
     total = args.damage;
@@ -588,6 +596,7 @@ export function handleAoeDamage(
     ...(area ? { area } : {}),
     ...(beyondReach.length ? { outOfReach: `${beyondReach.join(", ")} ${beyondReach.length === 1 ? "is" : "are"} off the Material Plane; the spell does not touch them.` } : {}),
     ...(shielded.length ? { globeShielded: `${shielded.join(", ")} stand inside a Globe of Invulnerability; the spell has no effect on them.` } : {}),
+    ...revealed,
     ...encounterOver,
   };
 }

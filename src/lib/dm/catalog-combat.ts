@@ -375,6 +375,27 @@ export const COMBAT_ADJUDICATIONS: CatalogEntry[] = [
     ],
   },
   {
+    name: "reveal_enemy",
+    label: "Reveal a hidden enemy",
+    category: "combat",
+    summary: "Puts a hidden enemy (an ambusher) on the party's map and in the turn order.",
+    needsEncounter: true,
+    fields: [
+      {
+        name: "enemyId",
+        label: "Who",
+        kind: "select",
+        required: true,
+        // The party cannot pick a hidden enemy from its own list, so the
+        // form offers all of them, or one by name for a DM who sees them.
+        options: [{ value: "all", label: "Every hidden enemy" }],
+        other: { label: "One enemy by name", placeholder: "Ghast 2" },
+        help: "A hidden enemy also shows itself when it attacks, casts, or is struck.",
+      },
+      REASON,
+    ],
+  },
+  {
     name: "enemy_flees",
     label: "An enemy flees",
     category: "combat",

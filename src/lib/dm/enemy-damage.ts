@@ -12,6 +12,7 @@ import { restoreOwnForm } from "@/lib/db/enemy-form";
 import { computeEncounterSummary, describeEncounterSummary } from "@/lib/dm/encounter-summary";
 import { getBattleMapForEncounter, removeTokenByRef } from "@/lib/db/battle-maps";
 import { publishPersisted } from "@/lib/events";
+import { revealOnAct } from "@/lib/dm/reveal";
 import { healthState } from "@/lib/bestiary/health";
 import { ammoCount, recoveredAmmo, withAmmoCount } from "@/lib/srd/ammunition";
 import { clearSpellConditionsByName } from "@/lib/dm/concentration";
@@ -214,9 +215,38 @@ export function autoEndOnVictory(
   return finishEncounter(campaign, turn, encounter, "victory", sheets, sheetsById);
 }
 
-// Applies damage to a living enemy: resistance/immunity/vulnerability math
-// from the stat block, HP patch, live enemy-card update, token removal and
-// auto-victory on a kill. Returns the compact tool result.
+// What applyEnemyDamage's callers may ask of the hurt.
+type EnemyDamageOptions = {
+  // The damage comes from a spell, a magic weapon, or strikes that count
+  // as magical, so "from nonmagical attacks" on the stat block does not
+  // cover it.
+  magical?: boolean;
+  // A melee blow meant to knock out (src/lib/dm/knockout.ts).
+  nonlethal?: boolean;
+  // Leave the fight open when the last foe falls: an opportunity attack
+  // has no DM turn, so the end and its XP wait for the next one (ODM's
+  // rule, test-enforce-movement).
+  holdVictory?: boolean;
+  // A critical hit, which Undead Fortitude cannot save against.
+  crit?: boolean;
+  // Not damage but death outright (exhaustion 6): no resistance halves it
+  // and no Undead Fortitude holds it.
+  death?: boolean;
+  // A silvered or adamantine weapon (damage-logic.ts weaponMaterial).
+  silvered?: boolean;
+  adamantine?: boolean;
+  // Elemental Adept: the creature's resistance to this type does not
+  // count (src/lib/srd/feat-combat.ts).
+  ignoreResistance?: boolean;
+  ignoreResistanceBy?: string;
+  // Mage Slayer: a melee weapon hit from within 5 feet puts the caster's
+  // concentration save at disadvantage (src/lib/srd/feat-combat.ts).
+  concentrationDisadvantage?: boolean;
+};
+
+// Every hurt to an enemy comes through here. A hidden one (an ambusher) is
+// revealed first: whoever struck it knew where it was (src/lib/dm/reveal.ts),
+// and its death plays where the party can see it.
 export function applyEnemyDamage(
   campaign: Campaign,
   turn: DmTurn,
@@ -226,33 +256,26 @@ export function applyEnemyDamage(
   sheets: CharacterSheet[],
   sheetsById: Map<string, CharacterSheet>,
   damageType?: string,
-  options?: {
-    // The damage comes from a spell, a magic weapon, or strikes that count
-    // as magical, so "from nonmagical attacks" on the stat block does not
-    // cover it.
-    magical?: boolean;
-    // A melee blow meant to knock out (src/lib/dm/knockout.ts).
-    nonlethal?: boolean;
-    // Leave the fight open when the last foe falls: an opportunity attack
-    // has no DM turn, so the end and its XP wait for the next one (ODM's
-    // rule, test-enforce-movement).
-    holdVictory?: boolean;
-    // A critical hit, which Undead Fortitude cannot save against.
-    crit?: boolean;
-    // Not damage but death outright (exhaustion 6): no resistance halves it
-    // and no Undead Fortitude holds it.
-    death?: boolean;
-    // A silvered or adamantine weapon (damage-logic.ts weaponMaterial).
-    silvered?: boolean;
-    adamantine?: boolean;
-    // Elemental Adept: the creature's resistance to this type does not
-    // count (src/lib/srd/feat-combat.ts).
-    ignoreResistance?: boolean;
-    ignoreResistanceBy?: string;
-    // Mage Slayer: a melee weapon hit from within 5 feet puts the caster's
-    // concentration save at disadvantage (src/lib/srd/feat-combat.ts).
-    concentrationDisadvantage?: boolean;
-  },
+  options?: EnemyDamageOptions,
+): Record<string, unknown> {
+  const revealed = amount > 0 || options?.death ? revealOnAct(campaign.id, enemy.id, "struck") : {};
+  const result = applyEnemyDamageInView(campaign, turn, encounter, enemy, amount, sheets, sheetsById, damageType, options);
+  return revealed.revealed && !result.dead && !result.knockedOut ? { ...result, ...revealed } : result;
+}
+
+// Applies damage to a living enemy: resistance/immunity/vulnerability math
+// from the stat block, HP patch, live enemy-card update, token removal and
+// auto-victory on a kill. Returns the compact tool result.
+function applyEnemyDamageInView(
+  campaign: Campaign,
+  turn: DmTurn,
+  encounter: Encounter,
+  enemy: EncounterEnemy,
+  amount: number,
+  sheets: CharacterSheet[],
+  sheetsById: Map<string, CharacterSheet>,
+  damageType?: string,
+  options?: EnemyDamageOptions,
 ): Record<string, unknown> {
   // Inescapable Destruction: the acting Death cleric's necrotic ignores resistance (authored-saves.ts).
   const ignores = (damageType && authoredIgnoresResistance(campaign.id, damageType)) || (options?.ignoreResistance && damageType ? (options.ignoreResistanceBy ?? "Elemental Adept") : null);

@@ -2,6 +2,7 @@ import { canAct } from "@/lib/dm/can-act";
 import { hasDungeonDelver, shieldMasterSaveBonus, spellSaveAdvantageReach } from "@/lib/srd/feat-combat";
 import { tilesBetween } from "@/lib/dm/attack-spatial";
 import { z } from "zod";
+import { revealOnAct } from "@/lib/dm/reveal";
 import { globeProblemFor } from "@/lib/dm/zone-rules";
 import type { Campaign } from "@/lib/db/campaigns";
 import { getActiveEncounter, recordEncounterTarget, setEnemyConcentration } from "@/lib/db/encounters";
@@ -236,6 +237,8 @@ export function handleCastAtPlayer(
     return { error: `Invalid damage expression "${damage}".` };
   }
   use?.commit();
+  // An unseen caster gives itself away by casting (src/lib/dm/reveal.ts).
+  const revealed = use ? revealOnAct(campaign.id, use.enemy.id, "acts") : {};
 
   const source = (args.source ?? (use ? `${use.enemy.displayName}'s ${use.name}` : "the effect")).trim() || "the effect";
   // The save a requested roll would be (src/lib/dm/forced-save.ts):
@@ -405,5 +408,5 @@ export function handleCastAtPlayer(
   if (tracked) {
     base.enemyConcentration = tracked;
   }
-  return base;
+  return { ...base, ...revealed };
 }

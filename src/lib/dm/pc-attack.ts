@@ -1,5 +1,6 @@
 import { spendFeatureUse } from "@/lib/dm/attack-onhit";
 import { z } from "zod";
+import { revealOnAct } from "@/lib/dm/reveal";
 import type { Campaign } from "@/lib/db/campaigns";
 import { getActiveEncounter, getEnemy, patchEnemyConditions, saveEncounter } from "@/lib/db/encounters";
 import { invisibilityEndedByAction, writeMarks } from "@/lib/dm/attack-marks";
@@ -299,6 +300,9 @@ export function handlePcAttack(
   // (src/lib/dm/authored-mote.ts); it bursts once the attack is rolled.
   const mote = moteOf(sheet, plan.attackRiders.spent);
   spendPcAttack(plan);
+  // Swinging at a hidden enemy shows where it is, hit or miss
+  // (src/lib/dm/reveal.ts); a hit would reveal it anyway.
+  const seen = revealOnAct(campaign.id, plan.enemy.id, "struck");
   const strike = { ...strikeToHit(plan), ...strikeDamage(plan) };
 
   // Physical dice: park the to-hit roll for the player; the submit route
@@ -307,7 +311,7 @@ export function handlePcAttack(
     parkPcAttack(plan, strike, toolCallId);
     return { [PC_ATTACK_PARKED]: true };
   }
-  const rolled = rollPcAttack(plan, strike);
+  const rolled = { ...rollPcAttack(plan, strike), ...seen };
   const burst = moteBurst(campaign, turn, mote, plan.enemy);
   return burst ? { ...rolled, mote: burst } : rolled;
 }

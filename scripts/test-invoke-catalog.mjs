@@ -83,6 +83,7 @@ const TOOL_SOURCES = [
   "src/lib/dm/settlement-tools.ts",
   "src/lib/dm/split-damage.ts",
   "src/lib/dm/explore-tools.ts",
+  "src/lib/dm/reveal.ts",
   "src/lib/image-tool.ts",
 ];
 

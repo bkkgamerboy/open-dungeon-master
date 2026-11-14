@@ -135,8 +135,14 @@ function restandTokens(map: BattleMap, generated: GeneratedMap, marchingOrder: s
       nearestOpenTile(generated.terrain, generated.width, generated.height, clamped, taken),
     );
   };
+  const sheetsById = new Map(listSheets(map.campaignId).map((sheet) => [sheet.id, sheet]));
   const { spots } = placeByFormation(
-    pcs.map((token) => ({ id: token.refId, name: token.name })),
+    pcs.map((token) => ({
+      id: token.refId,
+      name: token.name,
+      ac: sheetsById.get(token.refId)?.ac,
+      maxHp: sheetsById.get(token.refId)?.maxHp,
+    })),
     generated.pcSpawns,
     generated.enemySpawns,
     marchingOrder,

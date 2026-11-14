@@ -215,22 +215,40 @@ export function describeFormation(
 
 type XY = { x: number; y: number };
 
+// Who stands nearer the front among characters the formation does not
+// place: the higher armor class first, then the more hit points, then the
+// order they joined (a stable sort keeps the rest as they were). Characters
+// with no armor class given keep their place behind those with one.
+export function armorFirst(ids: string[], sheets: Array<{ id: string; ac?: number; maxHp?: number }>): string[] {
+  const byId = new Map(sheets.map((sheet) => [sheet.id, sheet]));
+  const ac = (id: string) => byId.get(id)?.ac ?? -1;
+  const hp = (id: string) => byId.get(id)?.maxHp ?? -1;
+  return ids
+    .map((id, index) => ({ id, index }))
+    .sort((a, b) => ac(b.id) - ac(a.id) || hp(b.id) - hp(a.id) || a.index - b.index)
+    .map((entry) => entry.id);
+}
+
 // Starting tiles for the party, by the formation: the front of it on the
 // tiles nearest the enemy, whichever way the enemy came from. An enemy from
 // behind is met by a party that turns to face it, so the healer the party
 // put at the back is never the one left standing next to them; "behind"
 // changes only what the story says. With no enemy on the board (a scene)
 // the formation runs along the tiles in the order the map gave them.
-// Characters not in the formation take the tiles after it. Returns each
-// character's tile and the sentence the tool result says about it.
+// Characters not in the formation take the tiles after it, the best
+// armoured first: with no formation at all (a new campaign starts with
+// none), the heaviest armour stands at the front and the casters behind it,
+// rather than whoever joined the table first. Returns each character's tile
+// and the sentence the tool result says about it.
 export function placeByFormation(
-  sheets: Array<{ id: string; name: string }>,
+  sheets: Array<{ id: string; name: string; ac?: number; maxHp?: number }>,
   partySpawns: XY[],
   enemySpawns: XY[],
   order: string[],
   from: "ahead" | "behind" = "ahead",
 ): { spots: Map<string, XY>; line: string } {
-  const { placed, unplaced } = formationView(order, sheets.map((sheet) => sheet.id));
+  const { placed, unplaced: joined } = formationView(order, sheets.map((sheet) => sheet.id));
+  const unplaced = armorFirst(joined, sheets);
   const ranked = [...placed, ...unplaced];
   const nearest = (spot: XY) =>
     enemySpawns.length ? Math.min(...enemySpawns.map((enemy) => Math.max(Math.abs(enemy.x - spot.x), Math.abs(enemy.y - spot.y)))) : 0;
@@ -246,7 +264,7 @@ export function placeByFormation(
   if (!placed.length) {
     return {
       spots,
-      line: "No travel formation is set, so the party starts in no particular order. The party lead can set one in the Party panel.",
+      line: `No travel formation is set, so the party starts with the heaviest armour at the front: ${unplaced.map(name).join(", ")}. The party lead can set one in the Party panel.`,
     };
   }
   const where = enemySpawns.length

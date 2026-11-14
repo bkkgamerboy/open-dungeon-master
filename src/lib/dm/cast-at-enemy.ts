@@ -10,6 +10,7 @@
 import { magicImmunityProblem } from "@/lib/dm/monster-traits";
 import { describeConditionDuration } from "@/lib/dm/condition-logic";
 import { z } from "zod";
+import { revealOnAct } from "@/lib/dm/reveal";
 import { placeSpellZone } from "@/lib/dm/zone-cast";
 import { zoneArgsSchema, zonePlacement } from "@/lib/dm/zone-args";
 import { bindsWorthResisting } from "@/lib/dm/legendary-logic";
@@ -502,7 +503,8 @@ export function handleCastAtEnemy(
   // A spell that stays on the ground is laid around its target (src/lib/dm/zone-cast.ts).
   // A later share of the same casting (a second creature in the web) leaves it where it is.
   const area = cast.continuing ? null : placeSpellZone(campaign, { spell: spellName, runsAs: resolvedMech?.runsAs ?? facts?.runsAs, caster: { kind: "pc", id: sheet.id, name: sheet.name }, slotLevel: slotLevel ?? null, dc, caught: [enemy.id], ...zonePlacement(args) });
-  return { ok: true, ...base, ...(area ? { area } : {}) };
+  // A spell aimed at a hidden enemy shows where it is (src/lib/dm/reveal.ts).
+  return { ok: true, ...base, ...(area ? { area } : {}), ...revealOnAct(campaign.id, enemy.id, "struck") };
 }
 
 // A creature's Hit Dice, as its block is built: hit points over the average

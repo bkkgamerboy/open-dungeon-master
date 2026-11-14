@@ -24,9 +24,11 @@ import { planConditionFx } from "@/lib/battlemap/fx-plan";
 import { publishFx, tokenPosition } from "@/lib/dm/fx";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
 import { aoeDamageTool, handleAoeDamage } from "@/lib/dm/aoe-damage";
+import { handleRevealEnemy, revealEnemyTool } from "@/lib/dm/reveal";
 
 // Encounter tools beyond the core start/damage/attack/end set:
-// reinforcements, enemy flight, enemy conditions, and multi-target AoE.
+// reinforcements, enemy flight, enemy conditions, multi-target AoE, and
+// bringing a hidden enemy into view.
 // Imports point downward only (enemy-damage, encounter-spawn, map-tools,
 // db); this module must never import encounter-tools.
 
@@ -40,6 +42,7 @@ export const EXTRA_ENCOUNTER_TOOL_NAMES = [
   "legendary_resist",
   "lair_action",
   "declare_intent",
+  "reveal_enemy",
 ] as const;
 
 type ToolDef = {
@@ -139,6 +142,7 @@ export const extraEncounterTools: ToolDef[] = [
   aoeDamageTool,
   ...legendaryTools,
   declareIntentTool,
+  revealEnemyTool,
 ];
 
 const enemyRefArgsSchema = z.object({
@@ -386,6 +390,8 @@ export function applyExtraEncounterCall(
       return { result: handleLairAction(campaign, turn, rawArguments) };
     case "declare_intent":
       return { result: handleDeclareIntent(campaign, rawArguments, sheets, sheetsById) };
+    case "reveal_enemy":
+      return { result: handleRevealEnemy(campaign, rawArguments) };
     default:
       return null;
   }

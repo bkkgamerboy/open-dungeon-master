@@ -1,7 +1,7 @@
 // Who an area's damage card names, past the cases test-enforce-roll-attacker
 // pins: a character's area that names no spell (a dragonborn's breath) is
-// still theirs, a caster whose token the players cannot see is not named,
-// and a spell that lays its area over the fallen alone is still cast.
+// still theirs, a caster whose token the players cannot see is not named
+// (and is revealed once the blast is drawn), and a spell that lays its area over the fallen alone is still cast.
 import assert from "node:assert/strict";
 import { suite } from "./lib/enforce-harness.mjs";
 import { closeTables, FIGHTER, table } from "./lib/enforce-spell-kit.mjs";
@@ -40,6 +40,10 @@ await test("An enemy whose token the players cannot see is not named on its area
   const [blast] = since(world, before);
   assert.deepEqual(blast.attacker, { kind: "enemy", id: mage.id, name: "Someone unseen" });
   assert.equal(blast.detail, "Fireball on Aria");
+  // The spell gave away where it came from: the caster is on the board now
+  // (src/lib/dm/reveal.ts), and the next card names it.
+  assert.match(String(out.result.revealed), /gives itself away by acting/);
+  assert.equal(getDatabase().prepare("SELECT hidden FROM battle_tokens WHERE ref_id = ?").get(mage.id).hidden, 0);
 });
 
 await test("A spell that lays its area over the fallen alone is still cast; the dead are skipped.", async () => {

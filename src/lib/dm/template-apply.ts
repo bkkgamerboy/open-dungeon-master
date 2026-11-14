@@ -29,6 +29,7 @@ import {
   standInRanks,
 } from "@/lib/battlemap/party-ranks";
 import { placeByFormation } from "@/lib/dm/formation-logic";
+import { listSheets } from "@/lib/db/sheets";
 import { getParty } from "@/lib/db/party";
 import { describeExtras, expandRoster, matchSlots } from "@/lib/dm/encounter-template-logic";
 
@@ -169,8 +170,16 @@ function standPartyFacingEnemy(campaign: Campaign, map: BattleMap, entry: XY | n
   });
   // Front of the formation on the tiles nearest any enemy, the rear on the
   // farthest: the block's shape cannot put the healer in reach.
+  // Armor class and hit points rank anyone the formation leaves out, the
+  // whole party when none is set (formation-logic.ts armorFirst).
+  const sheetsById = new Map(listSheets(campaign.id).map((sheet) => [sheet.id, sheet]));
   const { spots } = placeByFormation(
-    party.map((token) => ({ id: token.refId, name: token.name })),
+    party.map((token) => ({
+      id: token.refId,
+      name: token.name,
+      ac: sheetsById.get(token.refId)?.ac,
+      maxHp: sheetsById.get(token.refId)?.maxHp,
+    })),
     slots,
     foes,
     getParty(campaign.id).marchingOrder,
