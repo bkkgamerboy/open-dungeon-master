@@ -38,8 +38,8 @@ export const COPY_OVERRIDES: Record<string, readonly string[]> = {
   prepared_maps: ["id", "campaign_id", "name", "created_at", "updated_at"],
   encounter_templates: ["id", "campaign_id", "name", "map_json", "cued", "created_at", "updated_at"],
   locations: [
-    "id", "campaign_id", "name", "layout_description", "visited", "is_current", "prepared_map_id",
-    "created_at", "updated_at",
+    "id", "campaign_id", "name", "layout_description", "connections_json", "visited", "is_current",
+    "prepared_map_id", "created_at", "updated_at",
   ],
   npcs: [
     "id", "campaign_id", "name", "last_shift_turn", "bonds_json", "arc_cast_id", "faction_id",
@@ -160,6 +160,11 @@ function copyLocationRow(context: CopyContext, row: Row, name: string): string {
     // A written place arrives as written: the DM's additions from the
     // source's play are that table's, not prep (src/lib/db/written-layout.ts).
     layout_description: String(row.written_layout ?? "").trim() || row.layout_description,
+    // And with its own routes, not every place one table arrived from: a
+    // written place the adventure gave none, once played, takes none.
+    connections_json: String(row.written_layout ?? "").trim()
+      ? String(row.written_connections ?? "").trim() || (row.visited ? "[]" : row.connections_json)
+      : row.connections_json,
     // The map this place stands on, so arriving offers a one-tap deploy.
     prepared_map_id: remap(context, "maps", row.prepared_map_id),
     created_at: context.now,

@@ -1,4 +1,6 @@
-import { getLocationByName, type CampaignLocation } from "@/lib/db/locations";
+import { getLocationByName, routesOf, type CampaignLocation } from "@/lib/db/locations";
+import { followsWritten } from "@/lib/db/written-layout";
+import { foldName } from "@/lib/language/text-logic";
 
 // The places an adventure writes, as the DM is shown them (build 32).
 //
@@ -29,7 +31,7 @@ export function roomsAhead(campaignId: string, here: CampaignLocation | null): R
   }
   const rooms: RoomAhead[] = [];
   const seen = new Set<string>([here.id]);
-  for (const route of here.connections) {
+  for (const route of routesOf(here)) {
     const place = getLocationByName(campaignId, route);
     if (!place || seen.has(place.id) || place.visited) {
       continue;
@@ -51,6 +53,40 @@ function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 3).trimEnd()}...`;
 }
 
+// The written places GAME STATE put in front of the model this turn: where
+// the party stands and the rooms ahead. A move into any other written place
+// is one the model narrated without having read it (build 33: a return to a
+// room three rooms back was told from the model's memory of an old guess).
+export function placesShown(campaignId: string, here: CampaignLocation | null): Set<string> {
+  const shown = new Set<string>();
+  if (here) {
+    shown.add(foldName(here.name));
+    for (const room of roomsAhead(campaignId, here)) {
+      shown.add(foldName(room.name));
+    }
+  }
+  return shown;
+}
+
+// Whether the tail of a reply, where its arrival is told, tells the written
+// room or another one. A short line ("You head back.") tells no room at all
+// and passes; a described room must share a fair part of its words with the
+// written text (followsWritten's measure, a little lower for prose that also
+// carries the walk there).
+export function narrationTellsWritten(narration: string, written: string): boolean {
+  const tail = narration.slice(-800);
+  const words = tail
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 4);
+  if (words.length < 14) {
+    return true;
+  }
+  return followsWritten(tail, written, 0.35);
+}
+
 // What arriving somewhere written tells the model, before the text itself.
 export const WRITTEN_ARRIVAL_CUE =
   "Narrate the arrival from its text: open with its size and shape, the light and every exit they can see, then what stands out. Anything it calls hidden or secret, or that needs a check to find, stays unmentioned until someone finds it. The text:";
@@ -60,5 +96,6 @@ export const WRITTEN_ARRIVAL_CUE =
 // model tells the arrival again from the text the move_party result carries.
 export function writtenArrivalPrompt(names: readonly string[]): string {
   const places = names.join(" and ");
-  return `${places} ${names.length === 1 ? "is" : "are"} written by the adventure, and your reply described ${names.length === 1 ? "it" : "them"} as a different place. That narration was not shown. Tell the arrival again from the adventure's text in the move_party result: its size and shape, the light, every exit the party can see, and what stands out, with nothing hidden given away and no rooms, passages or obstacles that text does not have. Do not call move_party again for ${names.length === 1 ? "it" : "them"}.`;
+  const one = names.length === 1;
+  return `${places} ${one ? "is" : "are"} written by the adventure, and your reply described ${one ? "it" : "them"} without that text, so the narration was not shown. Tell the arrival again from the adventure's text in the move_party result: its size and shape, the light, every exit the party can see, and what stands out, with nothing hidden given away and no rooms, passages, arches or obstacles that text does not have. An earlier description of ${one ? "it" : "them"} in the story that disagrees with the text was wrong; the text wins. Do not call move_party again for ${one ? "it" : "them"}.`;
 }

@@ -131,13 +131,15 @@ import {
   getCurrentLocation,
   getLocationByName,
   listLocations,
+  routesOf,
   setLocationLinks,
   updateCurrentLocationDetails,
   upsertCurrentLocation,
   withNewNames,
 } from "@/lib/db/locations";
 import { followsWritten } from "@/lib/db/written-layout";
-import { roomsAhead, WRITTEN_ARRIVAL_CUE, writtenArrivalPrompt } from "@/lib/dm/written-places";
+import { narrationTellsWritten, placesShown, roomsAhead, WRITTEN_ARRIVAL_CUE, writtenArrivalPrompt } from "@/lib/dm/written-places";
+import { foldName } from "@/lib/language/text-logic";
 import { sceneIds } from "@/lib/ambience/catalog";
 import { compactHistoryInBackground } from "@/lib/dm/compaction";
 import { createDeltaBatcher } from "@/lib/dm/delta-buffer";
@@ -532,7 +534,9 @@ export async function startDmTurn(campaignId: string) {
         ? {
             name: currentLocation.name,
             layoutDescription: currentLocation.layoutDescription,
-            connections: currentLocation.connections,
+            // A written place's own exits, not every place the party came
+            // from or the DM named (routesOf).
+            connections: routesOf(currentLocation),
             written: currentLocation.writtenLayout.trim() !== "",
           }
         : null,
@@ -926,6 +930,10 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
   // The same single shot for an arrival somewhere the adventure writes that
   // the reply described as a different room (handleLocationCall).
   let writtenNudged = false;
+  // The written places GAME STATE showed the model this turn (the turn's
+  // prompt was built from the record as it stands now: a resumed turn's
+  // moves so far each handed the model their text in their results).
+  const shownPlaces = placesShown(campaignId, getCurrentLocation(campaignId));
   // The same single shot for a blow landed in prose alone: a damage figure
   // that no tool rolled this turn (unrolledFigure).
   let damageNudged = false;
@@ -1237,14 +1245,14 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
       campaign.gameSettings.mapsEnabled &&
       imageProducerReady(campaign.settings) &&
       (await imagesAvailable(campaign.settings));
-    // Written places this reply narrated the party into as some other room.
-    const rewrittenPlaces: string[] = [];
+    // The moves into written places, weighed below once every call is in.
+    const writtenMoves: WrittenMove[] = [];
     for (const locationCall of locationCalls) {
       const result = handleLocationCall(campaign, locationCall.name, locationCall.rawArguments, picturesAvailable);
-      if (typeof result._writtenRewrite === "string") {
-        rewrittenPlaces.push(result._writtenRewrite);
+      if (result._written) {
+        writtenMoves.push(result._written as WrittenMove);
       }
-      delete result._writtenRewrite;
+      delete result._written;
       if (result.movedToNewLocation) {
         delete result.movedToNewLocation;
         // Link the narration message finalize() writes to the new area so
@@ -1260,6 +1268,23 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
       if (!("error" in result)) {
         accepted.add(locationCall);
       }
+    }
+    // The written rooms this reply told without their text: a first arrival
+    // somewhere GAME STATE never showed, or given a layout of a different
+    // room, and, where the party stops, a return whose arrival the prose
+    // tells as some other room (an old guess remembered from the story).
+    // A room the reply only passes through on the way back is not told.
+    const rewrittenPlaces: string[] = [];
+    writtenMoves.forEach((move, index) => {
+      const shown = shownPlaces.has(foldName(move.name));
+      const stop = index === writtenMoves.length - 1 && getCurrentLocation(campaignId)?.name === move.name;
+      const unread = !shown && (move.firstVisit || (stop && !narrationTellsWritten(narration, move.text)));
+      if ((move.mismatch || unread) && !rewrittenPlaces.includes(move.name)) {
+        rewrittenPlaces.push(move.name);
+      }
+    });
+    for (const move of writtenMoves) {
+      shownPlaces.add(foldName(move.name));
     }
     const recallResults = new Map<string, Record<string, unknown>>();
     for (const recallCall of recallCalls) {
@@ -2104,6 +2129,7 @@ export function handleLocationCall(
   let writtenArrival = false;
   let writtenSetAside = false;
   let writtenRewrite = false;
+  let writtenReturn = false;
   let writtenUpdate = false;
   let knownArrival = false;
   if (toolName === "move_party") {
@@ -2126,6 +2152,7 @@ export function handleLocationCall(
     writtenSetAside = Boolean(written && passed);
     writtenArrival = Boolean(written && movedToNewLocation && !onRecord?.visited);
     writtenRewrite = writtenArrival && Boolean(passed) && !followsWritten(passed, written);
+    writtenReturn = Boolean(written && movedToNewLocation && onRecord?.visited);
     returnedTo =
       movedToNewLocation &&
       sameRow &&
@@ -2192,18 +2219,22 @@ export function handleLocationCall(
   }
 
   const recorded = location.layoutDescription.trim();
+  let note = "Recorded. Continue the scene.";
+  if (writtenArrival) {
+    note = `Recorded. ${location.name} is written by the adventure${writtenSetAside ? ", so the layout you passed was set aside" : ""}. ${WRITTEN_ARRIVAL_CUE} ${recorded} Continue the scene.`;
+  } else if (writtenReturn && recorded) {
+    note = `Recorded. The party is back at ${location.name}, which the adventure writes${writtenSetAside ? " (the layout you passed was set aside)" : ""}. ${WRITTEN_ARRIVAL_CUE} ${recorded} Continue the scene.`;
+  } else if (returnedTo && recorded) {
+    note = `Recorded. The party is back at ${location.name}, as it was left: ${recorded} Continue the scene.`;
+  } else if (knownArrival && recorded) {
+    note = `Recorded. On record for ${location.name}: ${recorded} Continue the scene.`;
+  } else if (writtenUpdate) {
+    note = "Recorded after the adventure's own text for this place, which stays as written. Continue the scene.";
+  }
   return {
     ok: true,
     location: location.name,
-    note: writtenArrival
-      ? `Recorded. ${location.name} is written by the adventure${writtenSetAside ? ", so the layout you passed was set aside" : ""}. ${WRITTEN_ARRIVAL_CUE} ${recorded} Continue the scene.`
-      : returnedTo && recorded
-        ? `Recorded. The party is back at ${location.name}, as it was left: ${recorded} Continue the scene.`
-        : knownArrival && recorded
-          ? `Recorded. On record for ${location.name}: ${recorded} Continue the scene.`
-          : writtenUpdate
-          ? "Recorded after the adventure's own text for this place, which stays as written. Continue the scene."
-          : "Recorded. Continue the scene.",
+    note,
     // Consumed by advance() as the chapter-break and inline-map signals,
     // then stripped before the result reaches the model.
     ...(movedToNewLocation
@@ -2213,9 +2244,23 @@ export function handleLocationCall(
           _mapAvailable: mapEnqueued || Boolean(location.mapImage),
         }
       : {}),
-    ...(writtenRewrite ? { _writtenRewrite: location.name } : {}),
+    // Consumed by advance(), which decides whether the reply told the room
+    // from its text, then stripped (a person's invoke strips it too).
+    ...((writtenArrival || writtenReturn) && toolName === "move_party"
+      ? {
+          _written: {
+            name: location.name,
+            text: location.writtenLayout,
+            firstVisit: writtenArrival,
+            mismatch: writtenRewrite,
+          } satisfies WrittenMove,
+        }
+      : {}),
   };
 }
+
+// A move into a written place, as handleLocationCall reports it to advance().
+type WrittenMove = { name: string; text: string; firstVisit: boolean; mismatch: boolean };
 
 function parseSpotlightUserIds(
   rawArguments: string,

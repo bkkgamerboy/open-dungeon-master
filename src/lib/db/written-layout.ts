@@ -49,12 +49,12 @@ export function additionsTo(written: string, current: string, revision: string):
 // room's nouns (cave, carved, staircase, passage), an invented one brings
 // its own (pool, panel, cleft). The bar is low on purpose: a miss only costs
 // the one corrective call in turn.ts.
-export function followsWritten(layout: string, written: string): boolean {
+export function followsWritten(layout: string, written: string, bar = 0.4): boolean {
   const words = (text: string) =>
     text
       .toLowerCase()
       .normalize("NFKD")
-      .replace(/[̀-ͯ]/g, "")
+      .replace(/[\u0300-\u036f]/g, "")
       .split(/[^a-z0-9]+/)
       .filter((word) => word.length >= 4);
   const told = words(layout);
@@ -63,5 +63,5 @@ export function followsWritten(layout: string, written: string): boolean {
   }
   const source = new Set(words(written));
   const shared = told.filter((word) => source.has(word)).length;
-  return shared / told.length >= 0.4;
+  return shared / told.length >= bar;
 }

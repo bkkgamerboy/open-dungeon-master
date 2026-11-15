@@ -799,11 +799,15 @@ export function buildGameStateBlock(state: DmGameState): string {
       );
     }
     if (location.connections.length) {
-      lines.push(`Exits/known routes: ${location.connections.join(", ")}`);
+      lines.push(
+        location.written
+          ? `Exits/known routes (the adventure's, for this place): ${location.connections.join(", ")}`
+          : `Exits/known routes: ${location.connections.join(", ")}`,
+      );
     }
     if (state.roomsAhead?.length) {
       lines.push(
-        `Rooms ahead, as the adventure writes them. For you only: the party learns each on getting there, and a way or a thing the text calls hidden or secret, or that needs a check to find, stays unmentioned until someone finds it. Moving them into one, give move_party its name with no layout and narrate the arrival from its text:\n${state.roomsAhead
+        `Rooms ahead, as the adventure writes them: what lies through this place's exits, for you to narrate from when the party goes there. The exits themselves are as visible as the Layout above makes them; it is what is inside these rooms the party learns only on getting there, and a way or a thing a text calls hidden or secret, or that needs a check to find, stays unmentioned until someone finds it. Moving them into one, give move_party its name with no layout and narrate the arrival from its text:\n${state.roomsAhead
           .map((room) => `- ${room.name}: ${room.text}`)
           .join("\n")}`,
       );

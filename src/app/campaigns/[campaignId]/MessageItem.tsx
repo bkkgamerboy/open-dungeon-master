@@ -202,7 +202,9 @@ export const MessageItem = memo(function MessageItem({
     return <SystemMessage content={message.content} glyph={message.glyph} />;
   }
   if (message.authorType === "dm") {
-    const actions: MessageAction[] = [];
+    // Copy leads: it is the row the table reaches for most, so it sits at
+    // the top of the three-dots menu (build 33).
+    const actions: MessageAction[] = [copyAction(message)];
     if (onRenarrate) {
       actions.push({
         id: "reroll",
@@ -303,7 +305,6 @@ export const MessageItem = memo(function MessageItem({
         },
       });
     }
-    actions.push(copyAction(message));
     if (onDispute) {
       actions.push(disputeAction(message, onDispute));
     }

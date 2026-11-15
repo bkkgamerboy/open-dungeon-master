@@ -16,6 +16,10 @@ export type CampaignLocation = {
   // A written place's layoutDescription is this text, then the DM's own
   // additions (src/lib/db/written-layout.ts); the DM never writes over it.
   writtenLayout: string;
+  // The routes the adventure gives a written place, or [] when none were
+  // recorded. connections also gathers every place the party arrived from
+  // and every route the DM named in play, which are not this room's exits.
+  writtenConnections: string[];
   connections: string[];
   visited: boolean;
   isCurrent: boolean;
@@ -37,6 +41,7 @@ type LocationRow = {
   name: string;
   layout_description: string;
   written_layout: string | null;
+  written_connections: string | null;
   connections_json: string;
   visited: number;
   is_current: number;
@@ -67,6 +72,7 @@ function mapLocation(row: LocationRow): CampaignLocation {
     name: row.name,
     layoutDescription: row.layout_description,
     writtenLayout: row.written_layout ?? "",
+    writtenConnections: row.written_connections ? parseJson<string[]>(row.written_connections, []) : [],
     connections: parseJson<string[]>(row.connections_json, []),
     visited: Boolean(row.visited),
     isCurrent: Boolean(row.is_current),
@@ -83,6 +89,12 @@ export function getLocation(id: string): CampaignLocation | null {
     | LocationRow
     | undefined;
   return row ? mapLocation(row) : null;
+}
+
+// A place's exits as the DM is shown them: a written place's own routes when
+// the adventure gave it some, else every route on record.
+export function routesOf(location: Pick<CampaignLocation, "writtenLayout" | "writtenConnections" | "connections">): string[] {
+  return location.writtenLayout.trim() && location.writtenConnections.length ? location.writtenConnections : location.connections;
 }
 
 // Compared in JavaScript, by Unicode case and form (src/lib/language): SQLite's
@@ -246,10 +258,10 @@ export function insertKnownLocation(input: {
   getDatabase()
     .prepare(
       `INSERT INTO locations (
-         id, campaign_id, name, layout_description, written_layout, connections_json,
+         id, campaign_id, name, layout_description, written_layout, written_connections, connections_json,
          visited, is_current, created_at, updated_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
     )
     .run(
       id,
@@ -257,6 +269,7 @@ export function insertKnownLocation(input: {
       name,
       (input.layoutDescription ?? "").trim().slice(0, 2_000),
       input.written ? (input.layoutDescription ?? "").trim().slice(0, 2_000) : "",
+      input.written && input.connections?.length ? JSON.stringify(input.connections) : "",
       JSON.stringify(input.connections ?? []),
       now,
       now,
@@ -297,14 +310,19 @@ export function renameLocation(
       if (other.id === locationId) {
         continue;
       }
-      const repointed = other.connections.map((connection) =>
-        connection.trim().toLowerCase() === location.name.toLowerCase() ? trimmed : connection,
-      );
+      const repoint = (names: string[]) =>
+        names.map((connection) => (connection.trim().toLowerCase() === location.name.toLowerCase() ? trimmed : connection));
+      const repointed = repoint(other.connections);
       if (repointed.join("\u0000") !== other.connections.join("\u0000")) {
         db.prepare(`UPDATE locations SET connections_json = ? WHERE id = ?`).run(
           JSON.stringify(repointed),
           other.id,
         );
+      }
+      // A written place's own routes name it too.
+      const written = repoint(other.writtenConnections);
+      if (written.join("\u0000") !== other.writtenConnections.join("\u0000")) {
+        db.prepare(`UPDATE locations SET written_connections = ? WHERE id = ?`).run(JSON.stringify(written), other.id);
       }
     }
   })();

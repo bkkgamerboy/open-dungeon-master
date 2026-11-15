@@ -13,7 +13,6 @@ import { featsAsRun, registerTableFeatReader } from "@/lib/srd/feat-effects";
 import { tableFeatsFrom } from "@/lib/db/table-feats";
 import { registerTableHazardReader } from "@/lib/srd/table-hazards";
 import { tableHazardsFrom } from "@/lib/db/table-hazards";
-import { composeLayout } from "@/lib/db/written-layout";
 
 const dbPath =
   process.env.SQLITE_DB_PATH || path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "local-roleplay.sqlite");
@@ -2420,15 +2419,26 @@ function ensureSchema(db: SqliteDatabase) {
   if (!writtenLayoutLanded) {
     backfillWrittenLayouts(db);
   }
+  // Build 33: a written place's own routes, its exits, apart from every
+  // place the party arrived from (src/lib/db/locations.ts routesOf). The same
+  // one-shot trick, after written_layout so the places it marks are known.
+  const writtenRoutesLanded = (db.prepare(`PRAGMA table_info(locations)`).all() as Array<{ name: string }>).some(
+    (column) => column.name === "written_connections",
+  );
+  addColumns("locations", [["written_connections", `TEXT NOT NULL DEFAULT ''`]]);
+  if (!writtenRoutesLanded) {
+    backfillWrittenRoutes(db);
+  }
 }
 
 // Marks the places already on record that the adventure wrote. A workshop's
 // places are prep, so every one with text is written. A table's places copied
 // from prep take the text they were copied with; one the party has already
 // entered had that text overwritten by the DM's own guess on the way in (the
-// fault the column fixes), so the source's text comes back and the DM's words
-// ride after it. A table's place with no copy behind it was made in play, or
-// arrived as an imported map's blurb, and stays the DM's to describe.
+// fault the column fixes), so the source's text comes back alone: build 32
+// kept the guess after it, and the DM went on narrating the guess's exits. A
+// table's place with no copy behind it was made in play, or arrived as an
+// imported map's blurb, and stays the DM's to describe.
 export function backfillWrittenLayouts(db: SqliteDatabase) {
   db.prepare(
     `UPDATE locations SET written_layout = TRIM(layout_description)
@@ -2452,9 +2462,50 @@ export function backfillWrittenLayouts(db: SqliteDatabase) {
     if (!written) {
       continue;
     }
-    const kept = !layout || layout === written ? written : row.visited ? composeLayout(written, layout) : layout;
+    const kept = row.visited || !layout ? written : layout;
     update.run(written, kept, row.id);
   }
+}
+
+// Build 33, once: each written place's own routes, and the guesses build 32
+// left on the rooms a party had already entered taken off them. A workshop's
+// place keeps the routes it has. A table's copy takes its source's routes;
+// with no source row left, an unvisited copy keeps its own (nobody has added
+// to them yet) and a visited one records none, so it shows every route as
+// before. A visited written place goes back to its written text alone: the
+// words after it were the DM's earlier invention, which this build stops the
+// DM narrating from (and, in the few hours build 32 was out, notes the DM
+// added since, which a later update_location writes again).
+export function backfillWrittenRoutes(db: SqliteDatabase) {
+  db.prepare(
+    `UPDATE locations SET written_connections = connections_json
+      WHERE written_layout != '' AND connections_json NOT IN ('', '[]')
+        AND campaign_id IN (SELECT id FROM campaigns WHERE kind = 'workshop')`,
+  ).run();
+  const rows = db
+    .prepare(
+      `SELECT l.id, l.connections_json AS routes, l.visited, src.connections_json AS source
+         FROM locations l
+         JOIN campaigns c ON c.id = l.campaign_id AND c.kind != 'workshop'
+         LEFT JOIN content_origins o ON o.campaign_id = l.campaign_id AND o.kind = 'locations' AND o.row_id = l.id
+         LEFT JOIN locations src ON src.id = o.origin_row_id
+        WHERE l.written_layout != ''`,
+    )
+    .all() as Array<{ id: string; routes: string | null; visited: number; source: string | null }>;
+  const update = db.prepare(`UPDATE locations SET written_connections = ? WHERE id = ?`);
+  for (const row of rows) {
+    const source = row.source && row.source !== "[]" ? row.source : "";
+    const own = !row.visited && row.routes && row.routes !== "[]" ? row.routes : "";
+    const routes = source || own;
+    if (routes) {
+      update.run(routes, row.id);
+    }
+  }
+  db.prepare(
+    `UPDATE locations SET layout_description = written_layout
+      WHERE written_layout != '' AND visited = 1 AND layout_description != written_layout
+        AND campaign_id IN (SELECT id FROM campaigns WHERE kind != 'workshop')`,
+  ).run();
 }
 
 // Widens battle_tokens.kind to accept the DM's own board furniture.
