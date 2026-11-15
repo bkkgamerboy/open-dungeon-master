@@ -1,6 +1,7 @@
 import { READIED, READIED_WORDS, RELEASE_TOOLS, readiedHeld } from "@/lib/dm/readied-kinds";
 import type { Campaign } from "@/lib/db/campaigns";
 import { sceneIds } from "@/lib/ambience/catalog";
+import { SINCE_ARRIVAL } from "@/lib/db/written-layout";
 import type { CampaignMessage } from "@/lib/db/messages";
 import type { StoredRoll } from "@/lib/db/rolls";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
@@ -193,7 +194,12 @@ export type DmGameState = {
     name: string;
     layoutDescription: string;
     connections: string[];
+    // The adventure writes this place: its Layout opens with that text.
+    written?: boolean;
   } | null;
+  // The written places one step from here the party has not been to
+  // (src/lib/dm/written-places.ts).
+  roomsAhead?: Array<{ name: string; text: string }>;
   visitedLocationNames?: string[];
   // Recent lasting milestones per campaign character id.
   recentEventsByCharacter?: Map<string, string[]>;
@@ -786,10 +792,21 @@ export function buildGameStateBlock(state: DmGameState): string {
     const location = state.currentLocation;
     const lines = [`Current location: ${location.name}`];
     if (location.layoutDescription) {
-      lines.push(`Layout: ${location.layoutDescription}`);
+      lines.push(
+        location.written
+          ? `Layout (written by the adventure; what follows "${SINCE_ARRIVAL}" is yours): ${location.layoutDescription}`
+          : `Layout: ${location.layoutDescription}`,
+      );
     }
     if (location.connections.length) {
       lines.push(`Exits/known routes: ${location.connections.join(", ")}`);
+    }
+    if (state.roomsAhead?.length) {
+      lines.push(
+        `Rooms ahead, as the adventure writes them. For you only: the party learns each on getting there, and a way or a thing the text calls hidden or secret, or that needs a check to find, stays unmentioned until someone finds it. Moving them into one, give move_party its name with no layout and narrate the arrival from its text:\n${state.roomsAhead
+          .map((room) => `- ${room.name}: ${room.text}`)
+          .join("\n")}`,
+      );
     }
     const others = (state.visitedLocationNames ?? []).filter(
       (name) => name.toLowerCase() !== location.name.toLowerCase(),
@@ -1281,7 +1298,7 @@ export const movePartyTool = {
         layoutDescription: {
           type: "string",
           description:
-            "Physical layout: size and shape, light, every exit and where it is (compass direction or ahead/left/right/behind), landmarks, spatial relationships. 2-5 sentences.",
+            "Physical layout: size and shape, light, every exit and where it is (compass direction or ahead/left/right/behind), landmarks, spatial relationships. 2-5 sentences. Leave it out for a place GAME STATE already lists or shows under Rooms ahead: the server keeps its record, and a written place's text is never replaced.",
         },
         connections: {
           type: "array",
@@ -1396,7 +1413,7 @@ export const updateLocationTool = {
   function: {
     name: "update_location",
     description:
-      "Revise the current location's layout or connections after the party learns more about it.",
+      "Revise the current location's layout or connections after the party learns more about it. At a place the adventure writes, give only what is new (a found door, a cleared room): it is kept after the written text, which stays as it is.",
     parameters: {
       type: "object",
       additionalProperties: false,

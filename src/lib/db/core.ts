@@ -13,6 +13,7 @@ import { featsAsRun, registerTableFeatReader } from "@/lib/srd/feat-effects";
 import { tableFeatsFrom } from "@/lib/db/table-feats";
 import { registerTableHazardReader } from "@/lib/srd/table-hazards";
 import { tableHazardsFrom } from "@/lib/db/table-hazards";
+import { composeLayout } from "@/lib/db/written-layout";
 
 const dbPath =
   process.env.SQLITE_DB_PATH || path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "local-roleplay.sqlite");
@@ -2407,6 +2408,53 @@ function ensureSchema(db: SqliteDatabase) {
   // How many calls a row stands for: one, until the retention pass merges
   // old rows into one per month (src/lib/ops/retention.ts).
   addColumns("usage_events", [["calls", `INTEGER NOT NULL DEFAULT 1`]]);
+
+  // A place's text as the adventure writes it, which the DM narrates from and
+  // never writes over (src/lib/db/written-layout.ts). Checked before the
+  // column lands, so the catch-up for the places already on record runs
+  // exactly once; it runs here, after content_origins exists.
+  const writtenLayoutLanded = (db.prepare(`PRAGMA table_info(locations)`).all() as Array<{ name: string }>).some(
+    (column) => column.name === "written_layout",
+  );
+  addColumns("locations", [["written_layout", `TEXT NOT NULL DEFAULT ''`]]);
+  if (!writtenLayoutLanded) {
+    backfillWrittenLayouts(db);
+  }
+}
+
+// Marks the places already on record that the adventure wrote. A workshop's
+// places are prep, so every one with text is written. A table's places copied
+// from prep take the text they were copied with; one the party has already
+// entered had that text overwritten by the DM's own guess on the way in (the
+// fault the column fixes), so the source's text comes back and the DM's words
+// ride after it. A table's place with no copy behind it was made in play, or
+// arrived as an imported map's blurb, and stays the DM's to describe.
+export function backfillWrittenLayouts(db: SqliteDatabase) {
+  db.prepare(
+    `UPDATE locations SET written_layout = TRIM(layout_description)
+      WHERE TRIM(layout_description) != ''
+        AND campaign_id IN (SELECT id FROM campaigns WHERE kind = 'workshop')`,
+  ).run();
+  const rows = db
+    .prepare(
+      `SELECT l.id, l.layout_description AS layout, l.visited, src.layout_description AS source
+         FROM locations l
+         JOIN campaigns c ON c.id = l.campaign_id AND c.kind != 'workshop'
+         JOIN content_origins o ON o.campaign_id = l.campaign_id AND o.kind = 'locations' AND o.row_id = l.id
+         LEFT JOIN locations src ON src.id = o.origin_row_id`,
+    )
+    .all() as Array<{ id: string; layout: string | null; visited: number; source: string | null }>;
+  const update = db.prepare(`UPDATE locations SET written_layout = ?, layout_description = ? WHERE id = ?`);
+  for (const row of rows) {
+    const layout = (row.layout ?? "").trim();
+    const source = (row.source ?? "").trim();
+    const written = row.visited ? source : layout || source;
+    if (!written) {
+      continue;
+    }
+    const kept = !layout || layout === written ? written : row.visited ? composeLayout(written, layout) : layout;
+    update.run(written, kept, row.id);
+  }
 }
 
 // Widens battle_tokens.kind to accept the DM's own board furniture.

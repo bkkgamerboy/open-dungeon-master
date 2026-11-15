@@ -130,7 +130,13 @@ export const BUNDLE_COLUMNS: Record<string, { carried: string[]; left: Record<st
   },
   locations: {
     carried: ["name", "layout_description", "connections_json", "prepared_map_id", "ambience_json"],
-    left: { ...IDENTITY, visited: "play", is_current: "play", map_image_json: "a legacy column nothing reads" },
+    left: {
+      ...IDENTITY,
+      visited: "play",
+      is_current: "play",
+      map_image_json: "a legacy column nothing reads",
+      written_layout: "travels as layout_description, which an import marks written",
+    },
   },
   npcs: {
     carried: ["name", "attitude", "trait", "location", "role", "gender", "aliases_json", "personality_json", "goals_json", "relations_json", "portrait_url", "voice_json", "faction_id", "stat_block"],
@@ -318,7 +324,9 @@ export function exportWorkshopBundle(
     })),
     locations: locationRows.map((row) => ({
       name: str(row.name),
-      layoutDescription: str(row.layout_description),
+      // A written place travels as written, without the DM's additions from
+      // play (src/lib/db/written-layout.ts).
+      layoutDescription: str(row.written_layout) || str(row.layout_description),
       connections: parseJson<string[]>(str(row.connections_json, "[]"), []),
       map: at(mapIndex, row.prepared_map_id),
       ambience: row.ambience_json ? parseJson<Record<string, unknown> | null>(str(row.ambience_json), null) : null,

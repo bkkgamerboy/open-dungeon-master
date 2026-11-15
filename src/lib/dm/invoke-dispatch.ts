@@ -239,6 +239,9 @@ export async function dispatchAdjudication(
       delete result.movedToNewLocation;
       delete result._locationId;
       delete result._mapAvailable;
+      // The model's corrective call for an arrival it told as another room
+      // (turn.ts); a person's narration is theirs.
+      delete result._writtenRewrite;
       return result;
     }
     case "request_player_input":

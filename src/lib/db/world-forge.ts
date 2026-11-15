@@ -187,7 +187,7 @@ export function createRecord(campaignId: string, type: WorldType, input: { name?
   }
   if (type.shelf === "location") {
     if (getLocationByName(campaignId, name)) return { error: `There is already a place called ${name}.`, status: 409 };
-    const place = insertKnownLocation({ campaignId, name, layoutDescription: clean(input.text, 2_000) ?? "" });
+    const place = insertKnownLocation({ campaignId, name, layoutDescription: clean(input.text, 2_000) ?? "", written: true });
     return place ? { ref: refOf("location", place.id) } : { error: "That place could not be made." };
   }
   if (type.shelf === "faction") {
@@ -224,7 +224,7 @@ export function writeRecord(campaignId: string, ref: string, patch: EntityPatch,
     if (portrait !== undefined) setNpcPortrait(id, portrait);
   } else if (shelf === "location") {
     if (name && !renameLocation(campaignId, id, name)) return { error: `There is already a place called ${name}.`, status: 409 };
-    if (patch.text !== undefined) setLocationLayout(id, clean(patch.text, 2_000) ?? "");
+    if (patch.text !== undefined) setLocationLayout(id, clean(patch.text, 2_000) ?? "", { written: true });
   } else if (shelf === "faction") {
     updateFaction(id, {
       ...(name ? { name } : {}),

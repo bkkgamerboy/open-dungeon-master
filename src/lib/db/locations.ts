@@ -1,5 +1,6 @@
 import { foldName } from "@/lib/language/text-logic";
 import { getDatabase, nowIso, parseJson } from "@/lib/db/core";
+import { additionsTo, composeLayout, LAYOUT_MAX } from "@/lib/db/written-layout";
 import type { GeneratedImage } from "@/lib/types";
 
 // Structured location state: the DM records each area's layout and exits so
@@ -10,6 +11,11 @@ export type CampaignLocation = {
   campaignId: string;
   name: string;
   layoutDescription: string;
+  // The place as the adventure writes it (a pack's room, a workshop's place,
+  // one typed into WorldForge), or '' for a place the DM made up in play.
+  // A written place's layoutDescription is this text, then the DM's own
+  // additions (src/lib/db/written-layout.ts); the DM never writes over it.
+  writtenLayout: string;
   connections: string[];
   visited: boolean;
   isCurrent: boolean;
@@ -30,6 +36,7 @@ type LocationRow = {
   campaign_id: string;
   name: string;
   layout_description: string;
+  written_layout: string | null;
   connections_json: string;
   visited: number;
   is_current: number;
@@ -59,6 +66,7 @@ function mapLocation(row: LocationRow): CampaignLocation {
     campaignId: row.campaign_id,
     name: row.name,
     layoutDescription: row.layout_description,
+    writtenLayout: row.written_layout ?? "",
     connections: parseJson<string[]>(row.connections_json, []),
     visited: Boolean(row.visited),
     isCurrent: Boolean(row.is_current),
@@ -117,6 +125,9 @@ export function withNewNames(known: string[], added: string[]): string[] {
 }
 
 // Create-or-update by name, mark it current + visited, clear other currents.
+// A written place keeps its record whatever layout comes with the move: the
+// DM describes a room it has not seen, and that guess must not replace the
+// room the adventure wrote (src/lib/db/written-layout.ts).
 export function upsertCurrentLocation(input: {
   campaignId: string;
   name: string;
@@ -138,7 +149,9 @@ export function upsertCurrentLocation(input: {
           WHERE id = ?
         `,
       ).run(
-        input.layoutDescription?.trim() || existing.layoutDescription,
+        existing.writtenLayout.trim()
+          ? existing.layoutDescription
+          : input.layoutDescription?.trim() || existing.layoutDescription,
         JSON.stringify(
           input.connections ? withNewNames(existing.connections, input.connections) : existing.connections,
         ),
@@ -176,6 +189,9 @@ export function upsertCurrentLocation(input: {
   return location;
 }
 
+// A written place takes a revision as additions after its written text,
+// replacing the additions before them; anywhere else the revision is the
+// new layout.
 export function updateCurrentLocationDetails(
   campaignId: string,
   patch: { layoutDescription?: string; connections?: string[] },
@@ -184,12 +200,17 @@ export function updateCurrentLocationDetails(
   if (!current) {
     return null;
   }
+  let layout = patch.layoutDescription ?? current.layoutDescription;
+  if (current.writtenLayout.trim() && patch.layoutDescription !== undefined) {
+    const added = additionsTo(current.writtenLayout, current.layoutDescription, patch.layoutDescription);
+    layout = added === null ? current.layoutDescription : composeLayout(current.writtenLayout, added);
+  }
   getDatabase()
     .prepare(
       `UPDATE locations SET layout_description = ?, connections_json = ?, updated_at = ? WHERE id = ?`,
     )
     .run(
-      (patch.layoutDescription ?? current.layoutDescription).trim().slice(0, 2_000),
+      layout.trim().slice(0, LAYOUT_MAX),
       JSON.stringify(patch.connections ?? current.connections),
       nowIso(),
       current.id,
@@ -201,12 +222,16 @@ export function updateCurrentLocationDetails(
 // not where anyone is standing. This is how a DM populates a region before
 // play, and how a described overworld's starting locations arrive. Returns
 // the existing row untouched when the name is already known, so re-running a
-// description never duplicates a town.
+// description never duplicates a town. `written` marks the text as the
+// adventure's own (one typed into WorldForge), which the DM narrates from and
+// never writes over; an imported map's one-line blurb is not, so the DM's
+// arrival can still describe the town properly.
 export function insertKnownLocation(input: {
   campaignId: string;
   name: string;
   layoutDescription?: string;
   connections?: string[];
+  written?: boolean;
 }): CampaignLocation | null {
   const name = input.name.trim().slice(0, 80);
   if (!name) {
@@ -221,16 +246,17 @@ export function insertKnownLocation(input: {
   getDatabase()
     .prepare(
       `INSERT INTO locations (
-         id, campaign_id, name, layout_description, connections_json,
+         id, campaign_id, name, layout_description, written_layout, connections_json,
          visited, is_current, created_at, updated_at
        )
-       VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
     )
     .run(
       id,
       input.campaignId,
       name,
       (input.layoutDescription ?? "").trim().slice(0, 2_000),
+      input.written ? (input.layoutDescription ?? "").trim().slice(0, 2_000) : "",
       JSON.stringify(input.connections ?? []),
       now,
       now,
@@ -340,10 +366,24 @@ export function setLocationLinks(
 }
 
 // A generated place's description, written only when the place had none
-// (docs/vtt-parity-implementation-plan.md 12.1).
-export function setLocationLayout(locationId: string, layoutDescription: string): CampaignLocation | null {
-  getDatabase()
-    .prepare(`UPDATE locations SET layout_description = ?, updated_at = ? WHERE id = ?`)
-    .run(layoutDescription.slice(0, 2000), nowIso(), locationId);
+// (docs/vtt-parity-implementation-plan.md 12.1), or the author's own text
+// from WorldForge, which `written` makes the place's written text too.
+export function setLocationLayout(
+  locationId: string,
+  layoutDescription: string,
+  options: { written?: boolean } = {},
+): CampaignLocation | null {
+  const text = layoutDescription.slice(0, LAYOUT_MAX);
+  const db = getDatabase();
+  if (options.written) {
+    db.prepare(`UPDATE locations SET layout_description = ?, written_layout = ?, updated_at = ? WHERE id = ?`).run(
+      text,
+      text.trim(),
+      nowIso(),
+      locationId,
+    );
+  } else {
+    db.prepare(`UPDATE locations SET layout_description = ?, updated_at = ? WHERE id = ?`).run(text, nowIso(), locationId);
+  }
   return getLocation(locationId);
 }

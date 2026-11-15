@@ -294,14 +294,17 @@ function writeBundleRows(
       const id = crypto.randomUUID();
       db.prepare(
         `INSERT INTO locations
-           (id, campaign_id, name, layout_description, connections_json, visited, is_current,
+           (id, campaign_id, name, layout_description, written_layout, connections_json, visited, is_current,
             prepared_map_id, ambience_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)`,
       ).run(
         id,
         workshop.id,
         name,
         location.layoutDescription,
+        // A pack's room is written by the adventure: the DM narrates from it
+        // and never writes over it (src/lib/db/written-layout.ts).
+        location.layoutDescription.trim(),
         JSON.stringify(location.connections),
         idAt(ids.maps, location.map),
         location.ambience ? JSON.stringify(normalizeAmbience(location.ambience)) : null,

@@ -136,6 +136,8 @@ import {
   upsertCurrentLocation,
   withNewNames,
 } from "@/lib/db/locations";
+import { followsWritten } from "@/lib/db/written-layout";
+import { roomsAhead, WRITTEN_ARRIVAL_CUE, writtenArrivalPrompt } from "@/lib/dm/written-places";
 import { sceneIds } from "@/lib/ambience/catalog";
 import { compactHistoryInBackground } from "@/lib/dm/compaction";
 import { createDeltaBatcher } from "@/lib/dm/delta-buffer";
@@ -531,8 +533,12 @@ export async function startDmTurn(campaignId: string) {
             name: currentLocation.name,
             layoutDescription: currentLocation.layoutDescription,
             connections: currentLocation.connections,
+            written: currentLocation.writtenLayout.trim() !== "",
           }
         : null,
+      // The written rooms one step on, so the model moves the party into the
+      // room the adventure wrote instead of one it guesses at.
+      roomsAhead: roomsAhead(campaignId, currentLocation),
       recentPlayerLine: [...history].reverse().find((message) => message.authorType === "player")?.content.slice(0, 400) ?? "",
       visitedLocationNames: listLocations(campaignId)
         .filter((location) => location.visited)
@@ -917,6 +923,9 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
   // One shot at fixing a fight announced in prose without start_encounter; a
   // model that ignores the correction keeps its text rather than looping.
   let encounterNudged = false;
+  // The same single shot for an arrival somewhere the adventure writes that
+  // the reply described as a different room (handleLocationCall).
+  let writtenNudged = false;
   // The same single shot for a blow landed in prose alone: a damage figure
   // that no tool rolled this turn (unrolledFigure).
   let damageNudged = false;
@@ -1228,8 +1237,14 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
       campaign.gameSettings.mapsEnabled &&
       imageProducerReady(campaign.settings) &&
       (await imagesAvailable(campaign.settings));
+    // Written places this reply narrated the party into as some other room.
+    const rewrittenPlaces: string[] = [];
     for (const locationCall of locationCalls) {
       const result = handleLocationCall(campaign, locationCall.name, locationCall.rawArguments, picturesAvailable);
+      if (typeof result._writtenRewrite === "string") {
+        rewrittenPlaces.push(result._writtenRewrite);
+      }
+      delete result._writtenRewrite;
       if (result.movedToNewLocation) {
         delete result.movedToNewLocation;
         // Link the narration message finalize() writes to the new area so
@@ -1479,6 +1494,30 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
         answerRanAbove(fightOwnsFloor(campaignId), false);
         turn.conversation.push({ role: "user", content: FAKE_ENCOUNTER_PROMPT });
         // Saved again: the save above still carried the withheld announcement.
+        saveDmTurn(turn);
+        continue;
+      }
+      // An arrival somewhere the adventure writes, told as a room the model
+      // made up: the record kept the written room, so the prose would have
+      // the table walk somewhere that is not there. Hold it back and send the
+      // model once to tell the arrival from the text its move_party result
+      // carries (src/lib/dm/written-places.ts).
+      if (
+        !finalCall &&
+        !writtenNudged &&
+        rewrittenPlaces.length > 0 &&
+        narration &&
+        turn.narrationParts[turn.narrationParts.length - 1] === narration
+      ) {
+        writtenNudged = true;
+        turn.narrationParts.pop();
+        turn.conversation.push({
+          role: "assistant",
+          content: visibleText || "",
+          tool_calls: echoedToolCalls,
+        });
+        answerRanAbove(fightOwnsFloor(campaignId), false);
+        turn.conversation.push({ role: "user", content: writtenArrivalPrompt(rewrittenPlaces) });
         saveDmTurn(turn);
         continue;
       }
@@ -2057,6 +2096,16 @@ export function handleLocationCall(
   // narration of the return would otherwise invent the room anew. (A place
   // known only as somebody's route has a row but no layout yet.)
   let returnedTo = false;
+  // A place the adventure writes keeps its text whatever layout the model
+  // passed (upsertCurrentLocation): the first time the party gets there the
+  // model is handed that text to narrate from, and a layout it passed that
+  // is a different room altogether is flagged, so advance() can send it back
+  // once to narrate the room the adventure wrote (src/lib/db/written-layout.ts).
+  let writtenArrival = false;
+  let writtenSetAside = false;
+  let writtenRewrite = false;
+  let writtenUpdate = false;
+  let knownArrival = false;
   if (toolName === "move_party") {
     const name = typeof args.name === "string" ? args.name.trim() : "";
     if (!name) {
@@ -2071,11 +2120,22 @@ export function handleLocationCall(
       connections,
     });
     movedToNewLocation = !previous || previous.id !== location.id;
+    const sameRow = onRecord?.id === location.id;
+    const written = sameRow ? onRecord.writtenLayout.trim() : "";
+    const passed = layoutDescription?.trim() ?? "";
+    writtenSetAside = Boolean(written && passed);
+    writtenArrival = Boolean(written && movedToNewLocation && !onRecord?.visited);
+    writtenRewrite = writtenArrival && Boolean(passed) && !followsWritten(passed, written);
     returnedTo =
       movedToNewLocation &&
-      onRecord?.id === location.id &&
+      sameRow &&
+      Boolean(onRecord?.visited) &&
       onRecord.layoutDescription.trim() !== "" &&
-      !layoutDescription?.trim();
+      (!passed || Boolean(written));
+    // A first visit, with no layout, to somewhere only named so far with a
+    // line on record (an imported map's town): the model is handed the line.
+    knownArrival =
+      movedToNewLocation && sameRow && !onRecord?.visited && !written && !passed && onRecord.layoutDescription.trim() !== "";
     // Somewhere unwritten, with the world simulation on, gets its people
     // before the model narrates it (docs/vtt-parity-implementation-plan.md
     // 12.1). Anywhere already peopled is left as it was.
@@ -2098,6 +2158,7 @@ export function handleLocationCall(
     if (!location) {
       return { error: "No current location; call move_party first." };
     }
+    writtenUpdate = location.writtenLayout.trim() !== "" && layoutDescription !== undefined;
   }
 
   // The kind of place is its sound: stored as the place's bed, so the
@@ -2134,10 +2195,15 @@ export function handleLocationCall(
   return {
     ok: true,
     location: location.name,
-    note:
-      returnedTo && recorded
+    note: writtenArrival
+      ? `Recorded. ${location.name} is written by the adventure${writtenSetAside ? ", so the layout you passed was set aside" : ""}. ${WRITTEN_ARRIVAL_CUE} ${recorded} Continue the scene.`
+      : returnedTo && recorded
         ? `Recorded. The party is back at ${location.name}, as it was left: ${recorded} Continue the scene.`
-        : "Recorded. Continue the scene.",
+        : knownArrival && recorded
+          ? `Recorded. On record for ${location.name}: ${recorded} Continue the scene.`
+          : writtenUpdate
+          ? "Recorded after the adventure's own text for this place, which stays as written. Continue the scene."
+          : "Recorded. Continue the scene.",
     // Consumed by advance() as the chapter-break and inline-map signals,
     // then stripped before the result reaches the model.
     ...(movedToNewLocation
@@ -2147,6 +2213,7 @@ export function handleLocationCall(
           _mapAvailable: mapEnqueued || Boolean(location.mapImage),
         }
       : {}),
+    ...(writtenRewrite ? { _writtenRewrite: location.name } : {}),
   };
 }
 
