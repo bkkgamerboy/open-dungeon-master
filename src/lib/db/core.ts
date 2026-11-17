@@ -1915,6 +1915,10 @@ function ensureSchema(db: SqliteDatabase) {
   // storyteller to run when the scene reaches it (src/lib/dm/prepared-
   // encounter-tool.ts, #154). Play state: a copy never carries it.
   addColumns("encounter_templates", [["cued", `INTEGER NOT NULL DEFAULT 0`]]);
+  // When the storyteller last started this fight by name (build 34). A fight
+  // that has run leaves the storyteller's list of fights to come, and its
+  // room still shows what it held. Play state: a copy never carries it.
+  addColumns("encounter_templates", [["ran_at", `TEXT`]]);
   // What an arrow on the storyboard means, keyed by the card it points at:
   // one route of several, or a scene that only happens if something holds
   // (src/lib/workshop/board.ts). An arrow with no entry is the plain "then

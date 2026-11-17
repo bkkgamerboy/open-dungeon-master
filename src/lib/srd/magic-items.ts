@@ -18,7 +18,7 @@
 //   - a second copy of the same item adds nothing.
 
 import magicItemsJson from "@/lib/classes/magic-items.json";
-import { ATTUNEMENT_SLOTS, attunementSlotsFor, isWorn } from "@/lib/srd/armor";
+import { ATTUNEMENT_SLOTS, attunementSlotsFor, isWorn, magicItemBonus } from "@/lib/srd/armor";
 import type { Ability } from "@/lib/schemas/sheet";
 
 // The minimal item shape the magic-item engine reads: a name and its worn
@@ -47,7 +47,13 @@ export type MagicItemEffect =
   // (Gauntlets of Ogre Power, Amulet of Health, Headband of Intellect).
   | { kind: "set_ability"; ability: Ability; score: number }
   // Damage resistance keywords (Ring/Armor of Resistance).
-  | { kind: "resistance"; types: string[] };
+  | { kind: "resistance"; types: string[] }
+  // A bonus to spell attack rolls and spell save DCs (a Rod of the Pact
+  // Keeper, a Wand of the War Mage, a Robe of the Archmagi). "name" is the
+  // +1/+2/+3 the sheet's row carries ("Wand of the War Mage, +2"), +1 when it
+  // names none; `classes` limits it to the spells of those classes (the rod:
+  // warlock spells).
+  | { kind: "spell_bonus"; attack: number | "name"; dc: number | "name"; classes?: string[] };
 
 // Who an item lets attune, read from the pack's "requires attunement by ..."
 // line. `text` is that line's own wording, for the refusal.
@@ -130,6 +136,15 @@ export function matchMagicItem(name: string, slug?: string | null): MagicItemDef
   if (whole) {
     return whole;
   }
+  // "Rod of the Pact Keeper, +2", "Wand of the War Mage +1": a +1/+2/+3
+  // family read by its bare name; the bonus stays in the row's own name.
+  const unbonused = bare.replace(/,?\s*\+[123]$/, "");
+  if (unbonused !== bare) {
+    const family = byKey.get(keyOf(unbonused));
+    if (family) {
+      return family;
+    }
+  }
   const withoutNote = bare.replace(/\s*\([^()]*\)\s*$/, "");
   return withoutNote !== bare ? (byKey.get(keyOf(withoutNote)) ?? null) : null;
 }
@@ -141,6 +156,9 @@ export type MagicItemRiders = {
   // Ability -> the highest score any worn item sets it to.
   abilitySet: Partial<Record<Ability, number>>;
   resistances: string[];
+  // Spell attack and save DC bonuses, each with the classes whose spells it
+  // covers (none: every spell). Read through itemSpellBonus.
+  spellBonuses: Array<{ attack: number; dc: number; classes?: string[] }>;
   // Names of the items actually contributing, for the sheet breakdown.
   sources: string[];
 };
@@ -211,6 +229,7 @@ export function magicItemRiders(equipment: WornMagicItem[], wearer?: Wearer): Ma
     saveBonus: 0,
     abilitySet: {},
     resistances: [],
+    spellBonuses: [],
     sources: [],
   };
   // One copy of an item is all a creature can be attuned to, and wearing two
@@ -248,6 +267,16 @@ export function magicItemRiders(equipment: WornMagicItem[], wearer?: Wearer): Ma
           riders.resistances.push(...effect.types);
           contributed = true;
           break;
+        case "spell_bonus": {
+          const named = magicItemBonus(item.name) || 1;
+          const attack = effect.attack === "name" ? named : effect.attack;
+          const dc = effect.dc === "name" ? named : effect.dc;
+          if (attack || dc) {
+            riders.spellBonuses.push({ attack, dc, ...(effect.classes?.length ? { classes: effect.classes } : {}) });
+            contributed = true;
+          }
+          break;
+        }
       }
     }
     if (contributed) {
@@ -256,6 +285,24 @@ export function magicItemRiders(equipment: WornMagicItem[], wearer?: Wearer): Ma
   }
   riders.resistances = [...new Set(riders.resistances)];
   return riders;
+}
+
+// What the held and attuned items add to the spells of one class: the
+// sheet's own spellcasting class, or the class that owns a spell on a
+// multiclass sheet. A bonus limited to warlock spells adds nothing to a
+// wizard's. Different items stack, as different magic items do.
+export function itemSpellBonus(riders: Pick<MagicItemRiders, "spellBonuses">, classId: string | null | undefined): { attack: number; dc: number } {
+  const wanted = (classId ?? "").trim().toLowerCase();
+  let attack = 0;
+  let dc = 0;
+  for (const bonus of riders.spellBonuses) {
+    if (bonus.classes?.length && !bonus.classes.includes(wanted)) {
+      continue;
+    }
+    attack += bonus.attack;
+    dc += bonus.dc;
+  }
+  return { attack, dc };
 }
 
 // A character's ability scores after any worn ability-setting item raises

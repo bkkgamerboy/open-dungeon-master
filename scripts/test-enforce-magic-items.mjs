@@ -30,7 +30,12 @@ const resist = (...types) => ({ kind: "resistance", types });
 
 // SRD 5.1, "Magic Items". [name, requires attunement, effects]
 const BOOK = [
-  ["Staff of Power", true, [ac(2), save(2)]],
+  ["Staff of Power", true, [ac(2), save(2), { kind: "spell_bonus", attack: 2, dc: 0 }]],
+  // Build 34: the rods, wands and robes that raise a caster's spells.
+  ["Robe of the Archmagi", true, [{ kind: "spell_bonus", attack: 2, dc: 2 }]],
+  ["Wand of the War Mage, +1, +2, or +3", true, [{ kind: "spell_bonus", attack: "name", dc: 0 }]],
+  ["Boots of Speed", true, []],
+  ["Cloak of Displacement", true, []],
   ["Stone of Good Luck (Luckstone)", true, [save(1)]],
   ["Ring of Fire Resistance", true, [resist("fire")]],
   ["Ring of Protection", true, [ac(1), save(1)]],

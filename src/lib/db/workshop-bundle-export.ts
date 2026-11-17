@@ -126,7 +126,12 @@ export const BUNDLE_COLUMNS: Record<string, { carried: string[]; left: Record<st
   },
   encounter_templates: {
     carried: ["name", "enemies_json", "battlefield", "map_json", "notes", "extras_json"],
-    left: { ...IDENTITY, created_by_user_id: "the importer", cued: "a lead's cue is the source table's play" },
+    left: {
+      ...IDENTITY,
+      created_by_user_id: "the importer",
+      cued: "a lead's cue is the source table's play",
+      ran_at: "a fight the source table ran is still to come at the importer's",
+    },
   },
   locations: {
     carried: ["name", "layout_description", "connections_json", "prepared_map_id", "ambience_json"],

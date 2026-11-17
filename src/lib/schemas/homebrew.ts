@@ -30,6 +30,12 @@ export const magicItemEffectSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("save_bonus"), amount: z.number() }),
   z.object({ kind: z.literal("set_ability"), ability: abilityEnum, score: z.number() }),
   z.object({ kind: z.literal("resistance"), types: z.array(z.string()) }),
+  z.object({
+    kind: z.literal("spell_bonus"),
+    attack: z.union([z.number(), z.literal("name")]),
+    dc: z.union([z.number(), z.literal("name")]),
+    classes: z.array(z.string()).optional(),
+  }),
 ]);
 
 // The same shapes as SrdWeapon and SrdArmor (src/lib/srd/weapons.ts,

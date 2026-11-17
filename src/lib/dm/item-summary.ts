@@ -10,9 +10,10 @@ import { chargeMax, chargeRuleOf, chargesLeft } from "@/lib/dm/item-charges";
 import { armorOfRow } from "@/lib/srd/armor";
 import { gearDefOfRow } from "@/lib/srd/magic-gear";
 import { matchMagicItem, type MagicItemEffect } from "@/lib/srd/magic-items";
+import { spellBonusWords } from "@/lib/homebrew/gear";
 import type { EquipmentItem } from "@/lib/schemas/sheet";
 
-function effectWords(effect: MagicItemEffect): string {
+function effectWords(effect: MagicItemEffect, itemName: string): string {
   switch (effect.kind) {
     case "ac_bonus":
       return `+${effect.amount} AC`;
@@ -24,6 +25,8 @@ function effectWords(effect: MagicItemEffect): string {
       return `${effect.ability.toUpperCase()} ${effect.score}`;
     case "resistance":
       return `resists ${effect.types.join(", ")}`;
+    case "spell_bonus":
+      return spellBonusWords(effect, itemName);
   }
 }
 
@@ -69,7 +72,7 @@ export function magicItemLine(item: EquipmentItem, equipmentWorn = true): string
     parts.push(`+${armor.bonus} AC`);
   }
   for (const effect of worn?.effects ?? []) {
-    parts.push(effectWords(effect));
+    parts.push(effectWords(effect, item.name));
   }
   const rule = chargeRuleOf(item);
   if (rule) {

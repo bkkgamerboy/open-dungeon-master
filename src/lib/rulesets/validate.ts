@@ -202,6 +202,9 @@ function itemFindings(item: ItemDraft, rules: Partial<VariantRules>): Finding[] 
         text: `A ${effect.kind === "save_bonus" ? "save" : "AC"} bonus of ${effect.amount} is beyond any +3 item in the books.`,
       });
     }
+    if (effect.kind === "spell_bonus" && [effect.attack, effect.dc].some((value) => typeof value === "number" && value > 3)) {
+      findings.push({ page: "magic-items", level: "warn", text: "A spell bonus past +3 is beyond any rod, wand or robe in the books." });
+    }
     if (effect.kind === "set_ability" && effect.score > 27) {
       findings.push({ page: "magic-items", level: "warn", text: `Setting ${effect.ability.toUpperCase()} to ${effect.score} is above the strongest SRD belt (27).` });
     }

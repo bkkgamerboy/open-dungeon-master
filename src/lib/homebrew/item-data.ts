@@ -34,7 +34,7 @@ export const WEAPON_PROPERTIES = [
 export const ARMOR_CATEGORIES = ["light", "medium", "heavy", "shield"] as const;
 export const RARITIES = ["common", "uncommon", "rare", "very rare", "legendary", "artifact"] as const;
 export const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"] as const;
-export const EFFECT_KINDS = ["ac_bonus", "ac_unarmored", "save_bonus", "set_ability", "resistance"] as const;
+export const EFFECT_KINDS = ["ac_bonus", "ac_unarmored", "save_bonus", "set_ability", "resistance", "spell_bonus"] as const;
 
 // The ceilings are the published game's own: no magic bonus in the SRD goes
 // past +3, and no weapon a character swings rolls more than a dozen or two.
@@ -217,6 +217,19 @@ export function normalizeEffects(raw: unknown): MagicItemEffect[] {
           : [];
         if (types.length) {
           out.push({ kind: "resistance", types });
+        }
+        break;
+      }
+      case "spell_bonus": {
+        // A number, or "name": the +1/+2/+3 the item's own name carries.
+        const read = (value: unknown) => (value === "name" ? "name" : clamp(value, 0, GEAR_LIMITS.bonusMax, 0));
+        const attack = read(source.attack);
+        const dc = read(source.dc);
+        const classes = Array.isArray(source.classes)
+          ? [...new Set(source.classes.map((c) => String(c).trim().toLowerCase()).filter(Boolean))].slice(0, 12)
+          : [];
+        if (attack || dc) {
+          out.push({ kind: "spell_bonus", attack, dc, ...(classes.length ? { classes } : {}) });
         }
         break;
       }

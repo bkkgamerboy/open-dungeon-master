@@ -12,7 +12,7 @@ import { conditionAcRiders } from "@/lib/srd/condition-effects";
 import { combatRiders, defenseRiders, halfProficiencyCovers } from "@/lib/srd/feature-effects";
 import { featureSaveProficiencies } from "@/lib/srd/trait-rules";
 import { authoredAcBonus, authoredSaveModifier, authoredSpeeds } from "@/lib/srd/authored-effects";
-import { effectiveAbilities, magicItemRiders } from "@/lib/srd/magic-items";
+import { effectiveAbilities, itemSpellBonus, magicItemRiders } from "@/lib/srd/magic-items";
 import { encumbranceFor } from "@/lib/srd/encumbrance";
 import { allSpellNames } from "@/lib/srd/spell-lists";
 import { hpBonusPerLevel, speciesRulesFor, type SpeciesRules } from "@/lib/srd/race-id";
@@ -407,7 +407,8 @@ export function computeSheetDerived(
   const abilities = sheet.wildShape?.abilities
     ? { ...withItems, ...sheet.wildShape.abilities }
     : withItems;
-  const magicSaveBonus = sheet.equipment ? magicItemRiders(sheet.equipment, sheet).saveBonus : 0;
+  const magicRiders = sheet.equipment ? magicItemRiders(sheet.equipment, sheet) : null;
+  const magicSaveBonus = magicRiders?.saveBonus ?? 0;
   const abilityMods = Object.fromEntries(
     (Object.keys(abilities) as Ability[]).map((ability) => [ability, abilityMod(abilities[ability])]),
   ) as Record<Ability, number>;
@@ -500,17 +501,22 @@ export function computeSheetDerived(
     { label: "Investigation", value: skills.investigation },
     { label: "features", value: defense.passiveBonus },
   ]);
+  // A held, attuned Rod of the Pact Keeper or Wand of the War Mage, for the
+  // spells of the sheet's own casting class.
+  const itemSpell = magicRiders ? itemSpellBonus(magicRiders, primaryCasterClass(sheet)) : { attack: 0, dc: 0 };
   const spellSaveParts = spellAbility
     ? [
         { label: "base", value: 8 },
         { label: "proficiency", value: pb },
         { label: `${spellAbility.toUpperCase()} modifier`, value: abilityMods[spellAbility] },
+        ...(itemSpell.dc ? [{ label: "magic items", value: itemSpell.dc }] : []),
       ]
     : [];
   const spellAttackParts = spellAbility
     ? [
         { label: "proficiency", value: pb },
         { label: `${spellAbility.toUpperCase()} modifier`, value: abilityMods[spellAbility] },
+        ...(itemSpell.attack ? [{ label: "magic items", value: itemSpell.attack }] : []),
       ]
     : [];
   return {
@@ -533,6 +539,25 @@ export function computeSheetDerived(
       spellAttack: spellAttackParts,
     },
   };
+}
+
+// The class whose spells the sheet's own DC and attack bonus are: the caster
+// entry with the sheet's spellcasting ability on a multiclass sheet, the
+// sheet's class otherwise.
+function primaryCasterClass(sheet: { class?: string; spellcasting?: CharacterSheet["spellcasting"] }): string | null {
+  const casting = sheet.spellcasting;
+  if (!casting) {
+    return null;
+  }
+  return casting.casters?.find((caster) => caster.ability === casting.ability)?.classId ?? sheet.class ?? null;
+}
+
+// What the sheet's held, attuned items add to one class's spells.
+function itemBonusFor(
+  sheet: Parameters<typeof computeSheetDerived>[0],
+  classId: string | null,
+): { attack: number; dc: number } {
+  return sheet.equipment ? itemSpellBonus(magicItemRiders(sheet.equipment, sheet), classId) : { attack: 0, dc: 0 };
 }
 
 // The caster entry that owns a spell on a multiclass sheet: the one whose
@@ -585,10 +610,17 @@ export function spellSaveDcFor(
     return derived.spellSaveDc;
   }
   const owner = casterEntryForSpell(sheet.spellcasting, spellName, (sheet as { classes?: Array<{ id: string; subclass?: string; level: number }> }).classes ?? []);
-  if (!owner || owner.ability === sheet.spellcasting.ability) {
+  if (!owner) {
     return derived.spellSaveDc;
   }
-  return 8 + derived.proficiencyBonus + derived.abilityMods[owner.ability];
+  // The sheet's own DC carries its primary class's item bonus; a spell of
+  // another class carries that class's instead (a rod adds to warlock
+  // spells only).
+  const items = itemBonusFor(sheet, owner.classId).dc;
+  if (owner.ability === sheet.spellcasting.ability) {
+    return derived.spellSaveDc === null ? null : derived.spellSaveDc - itemBonusFor(sheet, primaryCasterClass(sheet)).dc + items;
+  }
+  return 8 + derived.proficiencyBonus + derived.abilityMods[owner.ability] + items;
 }
 
 // The spell-attack bonus for a named spell, same ownership rule as the DC.
@@ -605,10 +637,14 @@ export function spellAttackFor(
     return derived.spellAttack;
   }
   const owner = casterEntryForSpell(sheet.spellcasting, spellName, (sheet as { classes?: Array<{ id: string; subclass?: string; level: number }> }).classes ?? []);
-  if (!owner || owner.ability === sheet.spellcasting.ability) {
+  if (!owner) {
     return derived.spellAttack;
   }
-  return derived.proficiencyBonus + derived.abilityMods[owner.ability];
+  const items = itemBonusFor(sheet, owner.classId).attack;
+  if (owner.ability === sheet.spellcasting.ability) {
+    return derived.spellAttack === null ? null : derived.spellAttack - itemBonusFor(sheet, primaryCasterClass(sheet)).attack + items;
+  }
+  return derived.proficiencyBonus + derived.abilityMods[owner.ability] + items;
 }
 
 // Total XP needed to reach each level (index = level - 1), per the 5e table.

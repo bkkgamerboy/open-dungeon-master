@@ -280,6 +280,21 @@ function attunedBy(text) {
 
 const keyOf = (name) => name.trim().toLowerCase();
 
+// "Wand of the War Mage, +1, +2, or +3" is one row for three items; a sheet
+// carries one of them ("Wand of the War Mage, +2"), which the engine reads
+// by its bare name (srd/magic-items.ts strips the trailing "+2" and takes the
+// bonus from it). The bare-category families (a Weapon, an Armor) are not
+// aliased: every plain sword would match them.
+const GENERIC_FAMILIES = new Set(["weapon", "armor", "shield", "ammunition"]);
+
+function familyName(name) {
+  const family = /^(.+?),\s*\+1,\s*\+2,?\s*or\s*\+3$/i.exec(name);
+  if (!family || GENERIC_FAMILIES.has(family[1].trim().toLowerCase())) {
+    return null;
+  }
+  return family[1].trim();
+}
+
 // What the attack and armor engines read off a row beyond its effects: the
 // base item its category names, the SRD's riders (scripts/lib/
 // magic-item-riders.mjs), a +N any magic weapon or armor states in the
@@ -348,17 +363,22 @@ function collect() {
     const effects = DROPPED[match] ? [] : (REPLACED[match] ?? parsed.effects);
     const restriction = attunedBy(attunement);
     const gear = gearOf(row, desc, match);
+    const requiresAttunement = /requires attunement/i.test(attunement);
     // A row with no effect is kept only when the engine has something to
-    // enforce about it: who may attune, the item a magic weapon or armor is
-    // built on, its bonus, its charges.
-    if (!effects.length && !restriction && !Object.keys(gear).length) {
+    // enforce about it: that it takes one of the three attunements, who may
+    // attune, the item a magic weapon or armor is built on, its bonus, its
+    // charges. Without the row a sheet offers no way to attune to it (Boots
+    // of Speed, a Cloak of Displacement) and the three-item cap never sees it.
+    if (!effects.length && !requiresAttunement && !restriction && !Object.keys(gear).length) {
       continue;
     }
+    const family = familyName(row.name.trim());
     out.push({
       name: row.name.trim(),
       match,
       slugs: slugs.get(match) ?? [],
-      requiresAttunement: /requires attunement/i.test(attunement),
+      ...(family ? { aliases: [family] } : {}),
+      requiresAttunement,
       ...(restriction ? { attunedBy: restriction } : {}),
       ...(parsed.carried && effects.length ? { carried: true } : {}),
       effects,
@@ -378,6 +398,7 @@ function collect() {
       slugs: [],
       requiresAttunement: added.requiresAttunement,
       ...(added.aliases ? { aliases: added.aliases } : {}),
+      ...(added.attunedBy ? { attunedBy: added.attunedBy } : {}),
       effects: added.effects,
       ...(added.base ? { base: added.base } : {}),
     });

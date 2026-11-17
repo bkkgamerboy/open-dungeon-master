@@ -118,10 +118,11 @@ test("every generated item is well formed", () => {
     assert.equal(names.has(item.match), false, `duplicate ${item.match}`);
     names.add(item.match);
     // A row with no effect is in the table for what the engine holds about
-    // it: who may attune, the weapon or armor it is built on, its bonus and
-    // riders, its charges.
+    // it: that it takes one of the three attunements (build 34), who may
+    // attune, the weapon or armor it is built on, its bonus and riders, its
+    // charges.
     assert.ok(
-      item.effects.length > 0 || item.attunedBy || item.base || item.weapon || item.armor || item.charges,
+      item.effects.length > 0 || item.requiresAttunement || item.attunedBy || item.base || item.weapon || item.armor || item.charges,
       item.name,
     );
     assert.equal(typeof item.requiresAttunement, "boolean", item.name);
@@ -204,10 +205,13 @@ test("the rows a person corrected against the item's own text", () => {
   // effect: a Vorpal Sword gives no resistance, a Defender no standing AC.
   assert.deepEqual(matchMagicItem("Vorpal Sword")?.effects, []);
   assert.deepEqual(matchMagicItem("Defender")?.effects, []);
-  assert.equal(matchMagicItem("Asi"), null);
+  // An item that asks for attunement has a row for that (build 34), but
+  // none of the effects its text only seems to give.
+  assert.deepEqual(matchMagicItem("Asi")?.effects, []);
   assert.deepEqual(matchMagicItem("Staff of Power").effects, [
     { kind: "ac_bonus", amount: 2 },
     { kind: "save_bonus", amount: 2 },
+    { kind: "spell_bonus", attack: 2, dc: 0 },
   ]);
   assert.deepEqual(matchMagicItem("Belt of Storm Giant Strength").effects, [
     { kind: "set_ability", ability: "str", score: 29 },

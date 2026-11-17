@@ -265,6 +265,7 @@ const EFFECT_LABELS: Record<(typeof EFFECT_KINDS)[number], string> = {
   save_bonus: "Saving throw bonus",
   set_ability: "Sets an ability score",
   resistance: "Resistance",
+  spell_bonus: "Spell attack and save DC bonus",
 };
 
 function EffectsBlock({
@@ -294,7 +295,9 @@ function EffectsBlock({
                   ? { kind, ability: "str", score: 19 }
                   : kind === "resistance"
                     ? { kind, types: ["fire"] }
-                    : { kind, amount: 1 },
+                    : kind === "spell_bonus"
+                      ? { kind, attack: 1, dc: 1 }
+                      : { kind, amount: 1 },
               );
             }}
           />
@@ -323,6 +326,24 @@ function EffectsBlock({
                 />
               </span>
               <NumberStepper label="Score" value={effect.score} min={3} max={30} onChange={(score) => update(index, { ...effect, score })} />
+            </>
+          ) : null}
+          {effect.kind === "spell_bonus" ? (
+            <>
+              <NumberStepper
+                label="Spell attack"
+                value={effect.attack === "name" ? 1 : effect.attack}
+                min={0}
+                max={GEAR_LIMITS.bonusMax}
+                onChange={(attack) => update(index, { ...effect, attack })}
+              />
+              <NumberStepper
+                label="Save DC"
+                value={effect.dc === "name" ? 1 : effect.dc}
+                min={0}
+                max={GEAR_LIMITS.bonusMax}
+                onChange={(dc) => update(index, { ...effect, dc })}
+              />
             </>
           ) : null}
           {effect.kind === "resistance" ? (

@@ -46,10 +46,34 @@ export const DROPPED = {
   "belt of giant strength": "the score is the giant's; the named belts have their own rows",
 };
 
+// A bonus to spell attack rolls and spell save DCs while the item is held
+// and attuned (srd/magic-items.ts spell_bonus). "name" reads the +1/+2/+3 the
+// sheet's row carries ("Wand of the War Mage, +2"); `classes` limits it to
+// that class's spells. The parser never reads these: the amount is the
+// rarity's, not a number in the sentence.
+const spellBonus = (attack, dc, classes) => ({
+  kind: "spell_bonus",
+  attack,
+  dc,
+  ...(classes ? { classes } : {}),
+});
+
 // Rows whose effects are replaced outright.
 export const REPLACED = {
   // Immunity while held; resistance is the nearest thing the engine has.
   "lightning rod": [{ kind: "resistance", types: ["lightning"] }],
+  // "A bonus to spell attack rolls determined by the wand's rarity."
+  "wand of the war mage, +1, +2, or +3": [spellBonus("name", 0)],
+  // "+2 bonus to Armor Class, saving throws, and spell attack rolls."
+  "staff of power": [
+    { kind: "ac_bonus", amount: 2 },
+    { kind: "save_bonus", amount: 2 },
+    spellBonus(2, 0),
+  ],
+  // "Your spell save DC and spell attack bonus each increase by 2."
+  "robe of the archmagi": [spellBonus(2, 2)],
+  // "+2 bonus to spell attack rolls."
+  "staff of the magi": [spellBonus(2, 0)],
 };
 
 const attuned = (name, effects, aliases = []) => ({
@@ -112,4 +136,15 @@ export const ADDED = [
     base: { kind: "armor", name: "Scale Mail" },
   })),
   attuned("Ioun Stone of Protection", [{ kind: "ac_bonus", amount: 1 }], ["Ioun Stone (Protection)"]),
+  // Not in SRD 5.1 or the content pack, but handed out by adventures (The
+  // Pirate Queen's Ploy pack): a rod a warlock holds for a +1/+2/+3 bonus to
+  // the attack rolls and save DCs of their warlock spells. Its once-a-day
+  // slot recovery stays the DM's to run. The sheet's row names the bonus
+  // ("Rod of the Pact Keeper, +2"); a bare name counts as +1.
+  {
+    ...attuned("Rod of the Pact Keeper", [spellBonus("name", "name", ["warlock"])], [
+      "Rod of the Pact Keeper, +1, +2, or +3",
+    ]),
+    attunedBy: { text: "a warlock", classes: ["warlock"] },
+  },
 ];

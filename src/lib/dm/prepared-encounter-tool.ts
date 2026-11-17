@@ -1,5 +1,7 @@
 import type { Campaign } from "@/lib/db/campaigns";
-import { listEncounterTemplates, setTemplateCued, type EncounterTemplate } from "@/lib/db/encounter-templates";
+import { listEncounterTemplates, markTemplateRan, setTemplateCued, type EncounterTemplate } from "@/lib/db/encounter-templates";
+import { getCurrentLocation } from "@/lib/db/locations";
+import { foldName } from "@/lib/language/text-logic";
 import { getActiveEncounter } from "@/lib/db/encounters";
 import { getPreparedMap } from "@/lib/db/prepared-maps";
 import { describeExtras, formatRoster } from "@/lib/dm/encounter-template-logic";
@@ -80,6 +82,14 @@ export const runPreparedEncounterTool: ToolDef = {
 
 // The block in GAME STATE. Empty when there is nothing to run or a fight is
 // already on, so a table without prep pays nothing for this.
+//
+// Build 34: a fight the place the party stands in names comes first, with
+// everything it is worth. Before, the list was the first eight fights by
+// name, the same eight wherever the party was, each worth cut at 100
+// characters; an avoidable guardian's chest (a stone golem holding the key to
+// +1 studded leather) was never seen unless the fight itself ran. A fight
+// that has run leaves the list of fights to come; while the party stands in
+// its place, what it held is still shown, so a search there finds it.
 export function preparedFightsBlock(campaign: Campaign): string {
   if (getActiveEncounter(campaign.id)) {
     return "";
@@ -88,16 +98,57 @@ export function preparedFightsBlock(campaign: Campaign): string {
   if (!ready.length) {
     return "";
   }
-  // Cued fights first: the lead asked for those.
-  const ordered = [...ready.filter((template) => template.cued), ...ready.filter((template) => !template.cued)];
-  const lines = ordered.slice(0, LISTED).map((template) => {
-    const map = template.map.mapId ? getPreparedMap(campaign.id, template.map.mapId)?.name : "";
-    const plan = describeExtras(template.extras)[0] ?? "";
-    const note = template.notes.split("\n")[0]?.trim().slice(0, 120) ?? "";
-    return `- ${template.cued ? "[CUED by the party lead: run this one as soon as the scene allows] " : ""}${template.name}: ${formatRoster(template.enemies)}${template.battlefield ? ` | ${template.battlefield.slice(0, 100)}` : ""}${map ? ` | on the map "${map}"` : ""}${note ? ` | ${note}` : ""}${plan ? ` | ${plan.slice(0, 100)}` : ""}`;
+  const here = getCurrentLocation(campaign.id);
+  const place = here ? { name: here.name, text: here.writtenLayout || here.layoutDescription } : null;
+  const local = ready.filter((template) => fightBelongsTo(place, template.name));
+  const toCome = ready.filter((template) => !template.ranAt && !local.includes(template));
+  const sections: string[] = [];
+  const localLines = local.map((template) => {
+    const worth = template.extras.rewards ? ` Worth: ${template.extras.rewards}` : "";
+    if (template.ranAt) {
+      return `- ${template.name} (already fought here).${worth ? `${worth} Anything of it the party has not taken is still where the text puts it.` : ""}`;
+    }
+    const note = template.notes.split("\n")[0]?.trim().slice(0, 300) ?? "";
+    return `- ${template.cued ? "[CUED by the party lead] " : ""}${template.name}: ${formatRoster(template.enemies)}${note ? ` | ${note}` : ""}.${worth} The loot is here whether or not the fight happens: a party that slips past finds it by searching where the text says.`;
   });
-  const more = ready.length > LISTED ? `\n(${ready.length - LISTED} more are prepared; run any by its exact name.)` : "";
-  return `Prepared fights (secret; the table's prep. When the story reaches one, start it with ${RUN_PREPARED_ENCOUNTER} rather than inventing a roster):\n${lines.join("\n")}${more}`;
+  if (localLines.length) {
+    sections.push(`Prepared fights in ${here?.name ?? "this place"} (secret):\n${localLines.join("\n")}`);
+  }
+  if (toCome.length) {
+    // Cued fights first: the lead asked for those.
+    const ordered = [...toCome.filter((template) => template.cued), ...toCome.filter((template) => !template.cued)];
+    const lines = ordered.slice(0, LISTED).map((template) => {
+      const map = template.map.mapId ? getPreparedMap(campaign.id, template.map.mapId)?.name : "";
+      const plan = describeExtras(template.extras)[0] ?? "";
+      const note = template.notes.split("\n")[0]?.trim().slice(0, 120) ?? "";
+      return `- ${template.cued ? "[CUED by the party lead: run this one as soon as the scene allows] " : ""}${template.name}: ${formatRoster(template.enemies)}${template.battlefield ? ` | ${template.battlefield.slice(0, 100)}` : ""}${map ? ` | on the map "${map}"` : ""}${note ? ` | ${note}` : ""}${plan ? ` | ${plan.slice(0, 100)}` : ""}`;
+    });
+    const more = toCome.length > LISTED ? `\n(${toCome.length - LISTED} more are prepared; run any by its exact name.)` : "";
+    sections.push(`Prepared fights to come (secret; the table's prep. When the story reaches one, start it with ${RUN_PREPARED_ENCOUNTER} rather than inventing a roster):\n${lines.join("\n")}${more}`);
+  }
+  return sections.join("\n");
+}
+
+// Whether a fight belongs to a place: it is the place's own name ("Crypt of
+// the Fallen"), it is named for the place ("Guardian's Rest: the Stone
+// Golem"), or the place's text calls it its fight ("Fight: Shrine of
+// Bones"). A neighbouring room the text only points at ("a door into the
+// Shrine of Bones") is not this place's fight.
+export function fightBelongsTo(place: { name: string; text: string } | null, fight: string): boolean {
+  if (!place) {
+    return false;
+  }
+  const fold = (value: string) => foldName(value.replace(/[\u2018\u2019]/g, "'"));
+  const wanted = fold(fight);
+  const room = fold(place.name);
+  if (!wanted || !room) {
+    return false;
+  }
+  if (wanted === room || wanted.startsWith(`${room}:`) || wanted.startsWith(`${room} -`)) {
+    return true;
+  }
+  const text = fold(place.text).replace(/\s+/g, " ");
+  return [`fight: ${wanted}`, `fight "${wanted}"`, `fight '${wanted}'`, `fight: "${wanted}"`].some((cue) => text.includes(cue));
 }
 
 function findTemplate(campaignId: string, name: string): EncounterTemplate | null {
@@ -158,6 +209,7 @@ export function runPreparedEncounter(
     distanceFeet: typeof args.distanceFeet === "number" ? args.distanceFeet : undefined,
   });
   setTemplateCued(template.id, false);
+  markTemplateRan(template.id);
   // The plan rides back with the fight: what it is worth and when it
   // turns, so the storyteller can pay it out and play its phases.
   const plan = describeExtras(template.extras);

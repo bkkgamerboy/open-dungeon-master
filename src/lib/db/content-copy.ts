@@ -36,7 +36,7 @@ const NEVER_COPIED: Record<string, readonly string[]> = {
 // was deliberately reset from one that was dropped.
 export const COPY_OVERRIDES: Record<string, readonly string[]> = {
   prepared_maps: ["id", "campaign_id", "name", "created_at", "updated_at"],
-  encounter_templates: ["id", "campaign_id", "name", "map_json", "cued", "created_at", "updated_at"],
+  encounter_templates: ["id", "campaign_id", "name", "map_json", "cued", "ran_at", "created_at", "updated_at"],
   locations: [
     "id", "campaign_id", "name", "layout_description", "connections_json", "visited", "is_current",
     "prepared_map_id", "created_at", "updated_at",
@@ -219,8 +219,10 @@ function copyEncounterRow(context: CopyContext, row: Row, name: string): string 
     campaign_id: context.campaignId,
     name,
     map_json: JSON.stringify(map),
-    // A cue is the source table's play: the copy starts uncued.
+    // A cue is the source table's play: the copy starts uncued, and a fight
+    // the source table ran is still to come at the copy's.
     cued: 0,
+    ran_at: null,
     created_at: context.now,
     updated_at: context.now,
   });

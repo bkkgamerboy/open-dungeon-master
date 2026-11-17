@@ -320,5 +320,22 @@ export function describeEffect(effect: MagicItemEffect): string {
       return `${effect.ability.toUpperCase()} becomes ${effect.score}`;
     case "resistance":
       return `resists ${effect.types.join(", ")}`;
+    case "spell_bonus":
+      return spellBonusWords(effect);
   }
+}
+
+// "spell attack +2, spell save DC +2 (warlock spells)"; "name" is the
+// +1/+2/+3 the item's name carries.
+export function spellBonusWords(
+  effect: { attack: number | "name"; dc: number | "name"; classes?: string[] },
+  itemName?: string,
+): string {
+  const named = itemName ? Math.max(1, Number(/(?:^|[\s,(])\+([123])(?![0-9])/.exec(itemName)?.[1] ?? 1)) : null;
+  const amount = (value: number | "name") => (value === "name" ? (named ? `+${named}` : "+ the bonus in its name") : `+${value}`);
+  const parts = [
+    ...(effect.attack ? [`spell attack ${amount(effect.attack)}`] : []),
+    ...(effect.dc ? [`spell save DC ${amount(effect.dc)}`] : []),
+  ];
+  return `${parts.join(", ")}${effect.classes?.length ? ` (${effect.classes.join("/")} spells)` : ""}`;
 }

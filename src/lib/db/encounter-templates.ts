@@ -26,6 +26,8 @@ export type EncounterTemplate = {
   extras: TemplateExtras;
   // Cued by the lead of an AI-narrated table for the storyteller to run.
   cued: boolean;
+  // When the storyteller started it, or null while it has not run.
+  ranAt: string | null;
   createdByUserId: string;
   createdAt: string;
   updatedAt: string;
@@ -41,6 +43,7 @@ type TemplateRow = {
   notes: string;
   extras_json: string | null;
   cued: number | null;
+  ran_at: string | null;
   created_by_user_id: string;
   created_at: string;
   updated_at: string;
@@ -57,6 +60,7 @@ function mapTemplate(row: TemplateRow): EncounterTemplate {
     notes: row.notes ?? "",
     extras: normalizeTemplateExtras(parseJson<unknown>(row.extras_json ?? "{}", {})),
     cued: row.cued === 1,
+    ranAt: row.ran_at ?? null,
     createdByUserId: row.created_by_user_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -139,6 +143,11 @@ export function updateEncounterTemplate(
       id,
     );
   return getEncounterTemplate(id);
+}
+
+// Marks the fight as run: it leaves the storyteller's list of fights to come.
+export function markTemplateRan(id: string) {
+  getDatabase().prepare(`UPDATE encounter_templates SET ran_at = ? WHERE id = ?`).run(nowIso(), id);
 }
 
 export function setTemplateCued(id: string, cued: boolean) {
