@@ -4,6 +4,7 @@ import { endEncounter, getActiveEncounter, listEnemies, patchEnemyHp } from "@/l
 import { activePublicEncounter } from "@/lib/db/encounter-view";
 import { publishBattleMapUpdate } from "@/lib/dm/map-tools";
 import { publishPersisted } from "@/lib/events";
+import { invokeEngine } from "@/lib/dm/invoke";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,10 +29,17 @@ export async function GET(
   });
 }
 
-// Lead escape hatch: force-end a wedged encounter. No XP, no outcome
+// The party lead's End encounter. At a table the AI runs, the lead holds no
+// DM seat, and this was their only way to close a fight the story had
+// already finished (the last foes ran off in the narration, an ambusher was
+// never revealed): it ended the fight with no XP, so a whole fight's XP was
+// lost. Now it ends the fight the way the engine does (end_encounter): XP
+// for every enemy the party beat and half for any still standing, which slip
+// away, the after-the-fight card, the music. ?abort=1 is the old escape
+// hatch, kept for a fight the engine will not end: no XP, no outcome
 // narration; the fiction is the lead's to patch up with a direction.
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ campaignId: string }> },
 ) {
   const { campaignId } = await params;
@@ -42,6 +50,18 @@ export async function DELETE(
   const encounter = getActiveEncounter(campaignId);
   if (!encounter) {
     return Response.json({ error: "No active encounter." }, { status: 404 });
+  }
+  const abort = new URL(request.url).searchParams.get("abort") === "1";
+  if (!abort) {
+    const ended = await invokeEngine(
+      context.campaign,
+      { kind: "human", userId: context.user.id },
+      { name: "end_encounter", args: { outcome: "enemies_fled", reason: "the party lead ended the fight" } },
+    );
+    if (ended.ok) {
+      return Response.json({ ok: true, result: ended.result });
+    }
+    return Response.json({ error: ended.error }, { status: 409 });
   }
   for (const enemy of listEnemies(encounter.id)) {
     if (enemy.status === "alive") {

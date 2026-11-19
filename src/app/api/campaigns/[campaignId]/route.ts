@@ -18,7 +18,7 @@ import { currentCoordination } from "@/lib/dm/coordination";
 import { getAmbience } from "@/lib/db/ambience";
 import { captureBoundarySnapshot } from "@/lib/db/snapshots";
 import { listRecentCampaignEvents } from "@/lib/db/character-events";
-import { carryPartyHome, libraryRolesFor } from "@/lib/db/characters";
+import { carryPartyHome, describeHomeReport, libraryRolesFor, type HomeReport } from "@/lib/db/characters";
 import { activePublicEncounter } from "@/lib/db/encounter-view";
 import { listNotesVisibleTo } from "@/lib/db/notes";
 import { listOpenPendingRolls, publicPendingRoll } from "@/lib/db/dm-turns";
@@ -271,8 +271,19 @@ export async function PATCH(
   // Campaign over: write durable progression back to each library
   // character (level, XP, gold, gear, spells; never HP or conditions), the
   // party's companions included (src/lib/db/characters.ts carryPartyHome).
+  let home: HomeReport[] = [];
   if (nextStatus === "ended") {
-    carryPartyHome(campaignId, campaign.dmUserId ?? campaign.leadUserId ?? null);
+    home = carryPartyHome(campaignId, campaign.dmUserId ?? campaign.leadUserId ?? null);
+    // Who went home stays in the story, where the table reads it.
+    const seq = allocateSeq(campaignId);
+    const message = insertCampaignMessage({
+      campaignId,
+      seq,
+      authorType: "system",
+      glyph: "cue-bell",
+      content: describeHomeReport(home),
+    });
+    publishWithSeq(campaignId, seq, "message_added", { message });
   }
 
   // Kick off the adventure: a table note the DM answers with the opening
@@ -320,7 +331,7 @@ export async function PATCH(
     requestDmTurn(campaignId);
   }
 
-  return Response.json({ ok: true, status: nextStatus });
+  return Response.json({ ok: true, status: nextStatus, ...(nextStatus === "ended" ? { home } : {}) });
 }
 
 // Deletes the campaign and everything under it. Rows cascade via foreign

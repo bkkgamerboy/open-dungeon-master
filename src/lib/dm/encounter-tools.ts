@@ -1490,8 +1490,26 @@ export function autoActSkippedEnemies(
           : `${swing.rolled} vs AC ${result.vsAc}: miss`,
       )
       .join("; ");
+    // What the hits laid on the target (a crocodile's bite grabs and holds),
+    // so the table and the DM's next narration know why the hero cannot
+    // move, and how they get free.
+    const laid = [
+      ...new Set(
+        swings.flatMap((swing) =>
+          swing.hit && Array.isArray(swing.riderCondition) ? swing.riderCondition.map(String) : [],
+        ),
+      ),
+    ];
+    const escape = swings.find((swing) => swing.hit && typeof swing.escapeDc === "number")?.escapeDc;
+    const riders = laid.length
+      ? ` ${targetName} is ${laid.join(" and ")}${
+          laid.includes("grappled") && typeof escape === "number"
+            ? ` by ${enemy.displayName} (escape DC ${escape}: Athletics or Acrobatics, as an action)`
+            : ""
+        }.`
+      : "";
     notes.push(
-      `${enemy.displayName} attacks ${targetName} with ${String(result.attack)} (${summary}).${
+      `${enemy.displayName} attacks ${targetName} with ${String(result.attack)} (${summary}).${riders}${
         result.dropped ? ` ${targetName} falls!` : ""
       }`,
     );

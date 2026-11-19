@@ -83,13 +83,22 @@ export function EncounterPanel({
     };
   }, [sheets, encounter.enemies, genre]);
 
+  // The party lead at a table the AI runs: the fight ends as the engine
+  // ends it, with XP for what the party beat. Only if the engine will not
+  // end it is the old no-XP force-end offered.
   async function forceEnd() {
-    if (!await appConfirm("End this encounter without a resolution? No XP is awarded.")) {
+    if (!await appConfirm("End the fight now? XP is awarded for every enemy beaten, and half for any still standing, which slip away. The board clears and it cannot be reopened.", { title: "End the fight", actionLabel: "End it" })) {
       return;
     }
     setEnding(true);
     try {
-      await fetch(`/api/campaigns/${campaignId}/encounter`, { method: "DELETE" });
+      const response = await fetch(`/api/campaigns/${campaignId}/encounter`, { method: "DELETE" });
+      if (!response.ok && response.status !== 404) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        if (await appConfirm(`${body.error ?? "The engine would not end the fight."} Force-end it without XP instead?`, { actionLabel: "Force-end" })) {
+          await fetch(`/api/campaigns/${campaignId}/encounter?abort=1`, { method: "DELETE" });
+        }
+      }
     } finally {
       setEnding(false);
     }
@@ -114,7 +123,7 @@ export function EncounterPanel({
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
         if (await appConfirm(`${body.error ?? "The engine would not end the fight."} Force-end it without XP instead?`, { actionLabel: "Force-end" })) {
-          await fetch(`/api/campaigns/${campaignId}/encounter`, { method: "DELETE" });
+          await fetch(`/api/campaigns/${campaignId}/encounter?abort=1`, { method: "DELETE" });
         }
       }
     } finally {
@@ -145,7 +154,7 @@ export function EncounterPanel({
             onClick={canEditOrder ? endFight : forceEnd}
             disabled={ending}
             className="text-xs text-stone-500 hover:text-red-300 disabled:opacity-50 motion-press"
-            title={canEditOrder ? "End the fight: XP and the after-the-fight card" : "Force-end the encounter (lead only)"}
+            title="End the fight: XP and the after-the-fight card"
           >
             End encounter
           </button>

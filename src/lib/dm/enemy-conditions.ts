@@ -4,7 +4,7 @@ import { getSheetById, listSheets, patchSheet } from "@/lib/db/sheets";
 import { activePublicEncounter } from "@/lib/db/encounter-view";
 import { publishPersisted } from "@/lib/events";
 import { clearSpellConditionsByName } from "@/lib/dm/concentration";
-import { removeConditionInstances, type ConditionMeta, type ConditionMetaMap } from "@/lib/dm/condition-logic";
+import { instancesOf, removeConditionInstances, type ConditionMeta, type ConditionMetaMap } from "@/lib/dm/condition-logic";
 import { releaseGrapplesHeldBy } from "@/lib/dm/set-condition";
 
 // What follows from a creature being taken out of the fight, or out of
@@ -22,6 +22,20 @@ const HELD_BY_SOURCE = new Set(["grappled", "charmed", "frightened"]);
 const heldBySource = (name: string, sourceId: string) => (entry: ConditionMeta) =>
   HELD_BY_SOURCE.has(name.toLowerCase()) && entry.source === sourceId && !entry.spell;
 
+// A restraint a creature lays with its grapple ("grappled (escape DC 12).
+// Until this grapple ends, the target is restrained": a crocodile, a
+// constrictor) lasts only as long as the grapple (src/lib/dm/grapple.ts
+// withoutGrapple), so it ends when the creature falls too. A restraint the
+// creature laid without a grapple (a net, a web) outlives it.
+const restraintOfGrapple = (sourceId: string) => (entry: ConditionMeta) =>
+  entry.source === sourceId && !entry.spell;
+
+function grapples(meta: ConditionMetaMap | undefined, sourceId: string): boolean {
+  return Object.entries(meta ?? {}).some(
+    ([name, entry]) => name.toLowerCase() === "grappled" && instancesOf(entry).some((instance) => instance.source === sourceId),
+  );
+}
+
 // The instances `sourceId` holds taken off: a fear another creature also
 // holds stays (src/lib/dm/condition-logic.ts). `ending` names what went.
 function withoutHeldBy(
@@ -32,8 +46,11 @@ function withoutHeldBy(
   let nextConditions = conditions;
   let nextMeta: ConditionMetaMap = { ...(meta ?? {}) };
   const ending: string[] = [];
+  const grappling = grapples(meta, sourceId);
   for (const name of conditions) {
-    const result = removeConditionInstances(nextConditions, nextMeta, name, heldBySource(name, sourceId));
+    const held =
+      grappling && name.toLowerCase() === "restrained" ? restraintOfGrapple(sourceId) : heldBySource(name, sourceId);
+    const result = removeConditionInstances(nextConditions, nextMeta, name, held);
     if (result.removed) {
       nextConditions = result.conditions;
       nextMeta = result.meta;

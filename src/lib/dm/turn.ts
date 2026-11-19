@@ -1247,8 +1247,18 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
       (await imagesAvailable(campaign.settings));
     // The moves into written places, weighed below once every call is in.
     const writtenMoves: WrittenMove[] = [];
+    // A fight still open when the party walks on is a fight whose XP is
+    // never paid: XP comes when the fight closes in the engine, and the
+    // party lead's only way to close it was an abort. So the party does not
+    // leave for somewhere else while one is open, unless this same reply
+    // closes it (end_encounter, or enemy_flees for the ones that ran).
+    const closesFight = toolCalls.some((call) => call.name === "end_encounter" || call.name === "enemy_flees");
     for (const locationCall of locationCalls) {
-      const result = handleLocationCall(campaign, locationCall.name, locationCall.rawArguments, picturesAvailable);
+      const leaving =
+        locationCall.name === "move_party" && !closesFight ? openFightRefusal(campaign.id, locationCall.rawArguments) : null;
+      const result = leaving
+        ? { error: leaving }
+        : handleLocationCall(campaign, locationCall.name, locationCall.rawArguments, picturesAvailable);
       if (result._written) {
         writtenMoves.push(result._written as WrittenMove);
       }
@@ -2072,6 +2082,33 @@ export function handleRecordEvent(
   });
   publishPersisted(campaign.id, "character_event", { event, characterName: sheet.name });
   return { ok: true };
+}
+
+// move_party while a fight is open, to somewhere other than where it is:
+// the refusal that sends the model to close it first, or null.
+export function openFightRefusal(campaignId: string, rawArguments: string): string | null {
+  const encounter = getActiveEncounter(campaignId);
+  if (!encounter) {
+    return null;
+  }
+  let name = "";
+  try {
+    const args = JSON.parse(rawArguments || "{}") as { name?: unknown };
+    name = typeof args.name === "string" ? args.name.trim() : "";
+  } catch {
+    return null;
+  }
+  const here = getCurrentLocation(campaignId);
+  if (!name || (here && here.name.trim().toLowerCase() === name.toLowerCase())) {
+    return null;
+  }
+  const standing = listEnemies(encounter.id)
+    .filter((enemy) => enemy.status === "alive")
+    .map((enemy) => enemy.displayName);
+  const who = standing.length
+    ? `${standing.length} ${standing.length === 1 ? "enemy is" : "enemies are"} still in it (${standing.slice(0, 6).join(", ")})`
+    : "no enemy is standing, but it was never closed";
+  return `A fight is still open here: ${who}. XP is paid only when the fight closes, so close it before the party moves on, in this same reply: enemy_flees for each enemy that ran, swam or slipped away, or end_encounter with how it ended (victory if they are beaten or gave up, truce, party_fled if the party is the one leaving). Then call move_party again.`;
 }
 
 // move_party / update_location: record the structured area state, keep the

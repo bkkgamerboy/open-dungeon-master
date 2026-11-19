@@ -95,10 +95,23 @@ function publishSheet(campaign: Campaign, sheetId: string) {
 // the names of those let go.
 export function releaseGrapplesHeldBy(campaign: Campaign, holderId: string): string[] {
   const released: string[] = [];
-  const heldBy = (meta: ConditionMetaMap | undefined) =>
-    Object.entries((meta ?? {}) as ConditionMetaMap)
+  // The grapple, and the restraint the same holder lays with it ("until this
+  // grapple ends, the target is restrained"), which ends with the grapple
+  // (src/lib/dm/grapple.ts withoutGrapple). A restraint with no grapple
+  // beside it (a net) is not this holder's grip and stays.
+  const heldBy = (meta: ConditionMetaMap | undefined) => {
+    const entries = Object.entries((meta ?? {}) as ConditionMetaMap);
+    const grapples = entries
       .filter(([name, entry]) => name.toLowerCase() === "grappled" && entry.source === holderId)
       .map(([name]) => name);
+    if (!grapples.length) {
+      return grapples;
+    }
+    const restraints = entries
+      .filter(([name, entry]) => name.toLowerCase() === "restrained" && entry.source === holderId && !entry.spell)
+      .map(([name]) => name);
+    return [...grapples, ...restraints];
+  };
   for (const stale of listSheets(campaign.id)) {
     const names = heldBy(stale.conditionMeta);
     if (!names.length) {

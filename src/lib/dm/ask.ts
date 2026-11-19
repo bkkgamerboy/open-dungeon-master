@@ -9,6 +9,8 @@ import { listNpcs } from "@/lib/db/npcs";
 import { listRuleChunks } from "@/lib/db/rules";
 import { listRollsVisibleTo } from "@/lib/db/rolls";
 import { getSheetForUser, listSheets } from "@/lib/db/sheets";
+import { getActiveEncounter, listEnemies } from "@/lib/db/encounters";
+import { instancesOf, type ConditionMetaMap } from "@/lib/dm/condition-logic";
 import { arcTextTimeoutMs, utilityContextTokens, type ChatMessage } from "@/lib/model-client";
 import { requestUtilityMessage } from "@/lib/dm/model";
 import { trackUtilityCall } from "@/lib/dm/call-tracker";
@@ -24,6 +26,7 @@ import { describeSheet } from "@/lib/dm/prompt";
 import { CHARS_PER_TOKEN } from "@/lib/dm/context-budget";
 import { chronicleSystemLine } from "@/lib/chronicle-logic";
 import type { CampaignMessage } from "@/lib/db/messages";
+import type { CharacterSheet } from "@/lib/schemas/sheet";
 import {
   OMITTED_MARK,
   clampQuestion,
@@ -145,6 +148,36 @@ function transcriptLines(campaignId: string, messages: CampaignMessage[]): Trans
 const RECENT_ROLLS = 30;
 const SCENE_CLIP = 700;
 
+// A sheet's conditions, each with the creature that laid it and the way out
+// a grapple prints: "restrained (by Crocodile, until its grapple ends)".
+export function describeHeld(
+  sheet: Pick<CharacterSheet, "conditions" | "conditionMeta">,
+  holders: Map<string, string>,
+): string[] {
+  const meta = (sheet.conditionMeta ?? {}) as ConditionMetaMap;
+  const grippedBy = new Set(
+    instancesOf(meta.grappled).map((instance) => instance.source ?? "").filter(Boolean),
+  );
+  return sheet.conditions.map((condition) => {
+    const sources = instancesOf(meta[condition])
+      .map((instance) => instance.source ?? "")
+      .filter((source) => source && holders.has(source));
+    if (!sources.length) {
+      return condition;
+    }
+    const by = [...new Set(sources.map((source) => holders.get(source)))].join(" and ");
+    const escape = instancesOf(meta[condition]).find((instance) => typeof instance.escapeDc === "number")?.escapeDc;
+    const lowered = condition.toLowerCase();
+    if (lowered === "grappled") {
+      return `grappled (by ${by}${typeof escape === "number" ? `; escape DC ${escape} with Athletics or Acrobatics, as an action` : ""})`;
+    }
+    if (lowered === "restrained" && sources.some((source) => grippedBy.has(source))) {
+      return `restrained (by ${by}, until its grapple ends)`;
+    }
+    return `${condition} (from ${by})`;
+  });
+}
+
 // The party's hit points and the table's recent dice, exactly as the server
 // holds them. Without these a question about damage could only be answered
 // from narration, and narration is what goes wrong: a blow written with no
@@ -155,12 +188,19 @@ function mechanicalRecord(campaignId: string, ownedCharacterIds: string[]): stri
   const evidence: string[] = [];
   const sheets = listSheets(campaignId);
   if (sheets.length) {
+    // Who laid each condition, by name: "why is Bruce restrained?" is
+    // answered by the crocodile holding him, which no narration may have said.
+    const encounter = getActiveEncounter(campaignId);
+    const holders = new Map<string, string>([
+      ...sheets.map((sheet) => [sheet.id, sheet.name] as [string, string]),
+      ...(encounter ? listEnemies(encounter.id) : []).map((enemy) => [enemy.id, enemy.displayName] as [string, string]),
+    ]);
     evidence.push(
       `Hit points right now, as the server holds them:\n${sheets
         .map(
           (sheet) =>
             `[vitals] ${sheet.name}: ${sheet.currentHp}/${sheet.maxHp} hit points${sheet.tempHp ? `, ${sheet.tempHp} temporary` : ""}${
-              sheet.conditions.length ? `, ${sheet.conditions.join(", ")}` : ""
+              sheet.conditions.length ? `, ${describeHeld(sheet, holders).join(", ")}` : ""
             }`,
         )
         .join("\n")}`,

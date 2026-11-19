@@ -169,9 +169,19 @@ function EndCampaign({ campaignId, title, ended }: { campaignId: string; title: 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "ended" }),
       });
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        home?: Array<{ name: string; saved: boolean; reason?: string }>;
+      };
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
         setError(data.error || "Could not end the campaign.");
+      } else {
+        // Anyone who did not make it home is named, so their gear is not
+        // found missing at the next table. The story keeps the same line.
+        const missed = (data.home ?? []).filter((entry) => !entry.saved);
+        if (missed.length) {
+          setError(`Not saved to your library: ${missed.map((entry) => `${entry.name} (${entry.reason ?? "unknown"})`).join("; ")} Open their card in the Party tab and tap Save to library.`);
+        }
       }
       // On success the campaign_updated event flips every seat to ended.
     } catch {

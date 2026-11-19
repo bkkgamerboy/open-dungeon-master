@@ -65,6 +65,37 @@ export function resolveEnemyRef(encounterId: string, ref: string): EncounterEnem
   );
 }
 
+// What a fight is worth when it ends, enemy by enemy (SRD 5.1 and the DMG
+// count a monster the party defeats: killed, knocked out, or driven off).
+//   - Killed or knocked out: its full XP, however the fight ended. A party
+//     that kills two of five and then runs still beat those two.
+//   - Fled, or still standing when the party holds the field (the rest ran,
+//     or a truce): half.
+//   - Still standing when the DM calls the fight a victory (it surrendered,
+//     or the DM judged it beaten): full.
+//   - Anything left when the party fled or fell: nothing.
+// `enemies` are read before the outcome marks the standing ones fled.
+export function fightXp(
+  enemies: Array<Pick<EncounterEnemy, "status" | "xp"> & Parameters<typeof isDefeated>[0]>,
+  outcome: string,
+): number {
+  const partyHeld = outcome !== "party_fled" && outcome !== "party_defeated";
+  let total = 0;
+  for (const enemy of enemies) {
+    const xp = Math.max(0, enemy.xp || 0);
+    if (enemy.status === "dead" || (enemy.status === "alive" && isKnockedOut(enemy))) {
+      total += xp;
+    } else if (!partyHeld) {
+      continue;
+    } else if (enemy.status === "alive" && outcome === "victory") {
+      total += xp;
+    } else {
+      total += xp / 2;
+    }
+  }
+  return Math.floor(total);
+}
+
 export function finishEncounter(
   campaign: Campaign,
   turn: DmTurn,
@@ -111,13 +142,11 @@ export function finishEncounter(
     ammoRecovered[`${owner.name}: ${itemName}`] = back;
   }
 
-  const totalXp = enemies.reduce((sum, enemy) => sum + enemy.xp, 0);
-  const share =
-    outcome === "victory" ? 1 : outcome === "enemies_fled" || outcome === "truce" ? 0.5 : 0;
+  const totalXp = fightXp(enemies, outcome);
   // The dead take no share: what the fight was worth is split among those
   // who lived through it.
   const earners = sheets.filter((sheet) => !(getSheetById(sheet.id) ?? sheet).deathSaves?.dead);
-  const xpEach = earners.length ? Math.floor((totalXp * share) / earners.length) : 0;
+  const xpEach = earners.length ? Math.floor(totalXp / earners.length) : 0;
   let xpResult: Record<string, unknown> = {};
   if (xpEach > 0) {
     xpResult = applyDmMutation(

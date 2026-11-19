@@ -587,6 +587,15 @@ export function describeSheet(
       if (meta?.saveEnds) {
         return `${condition} (save ends: ${meta.saveEnds.ability.toUpperCase()} DC ${meta.saveEnds.dc})`;
       }
+      // A monster's grab and the hold that comes with it, so the narration
+      // says who has them and how they get free.
+      const lowered = condition.trim().toLowerCase();
+      if (lowered === "grappled" && meta?.source) {
+        return `grappled by ${meta.source}${typeof meta.escapeDc === "number" ? ` (escape DC ${meta.escapeDc}: take_action escape)` : ""}`;
+      }
+      if (lowered === "restrained" && meta?.source && sheet.conditionMeta?.grappled?.source === meta.source) {
+        return `restrained by ${meta.source}'s grapple (ends with it)`;
+      }
       return condition;
     });
     lines.push(`  Conditions: ${described.join(", ")}`);

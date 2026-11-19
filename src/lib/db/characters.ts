@@ -414,13 +414,13 @@ export function keepsLibraryLevel(sheetLevel: number, libraryLevel: number): boo
 // joining adaptation of the same character, not progress. A sheet at or
 // above the library's level is the character as last played and writes
 // everything back, as before.
-export function syncProgressToLibrary(sheetId: string): LibraryCharacter | null {
+export function syncProgressToLibrary(sheetId: string, storyOwnerId: string | null = null): LibraryCharacter | null {
   const sheet = getSheetById(sheetId);
   if (!sheet?.libraryCharacterId) {
     return null;
   }
   const character = getCharacter(sheet.libraryCharacterId);
-  if (!character || !savesTo(character, sheet)) {
+  if (!character || !savesTo(character, sheet, storyOwnerId)) {
     return null;
   }
   return writeProgress(sheet, character);
@@ -431,8 +431,18 @@ export function syncProgressToLibrary(sheetId: string): LibraryCharacter | null 
 // its row is the one whoever ran the story brought it in from (or saved it
 // as), filed as an ally the DM plays. Before this, a companion's level-ups
 // never left the table that earned them.
-function savesTo(character: LibraryCharacter, sheet: CharacterSheet): boolean {
-  return character.userId === sheet.userId || (sheet.isCompanion && character.role === "companion");
+//
+// A hero its player seated from their own library and then handed to the DM
+// as an ally (hand-back) is a companion linked to that player's own row, filed
+// as one of their heroes. Its progress belongs on that row too: before this,
+// the campaign's end skipped it without a word, every campaign, and the next
+// table brought the hero in with the kit it was made with. So a companion
+// writes home to a row of any role owned by whoever runs the story.
+function savesTo(character: LibraryCharacter, sheet: CharacterSheet, storyOwnerId: string | null = null): boolean {
+  return (
+    character.userId === sheet.userId ||
+    (sheet.isCompanion && (character.role === "companion" || (storyOwnerId !== null && character.userId === storyOwnerId)))
+  );
 }
 
 function restedSpellcasting(spellcasting: CharacterSheet["spellcasting"]): CharacterSheet["spellcasting"] {
@@ -555,10 +565,13 @@ export function saveCompanionToLibrary(sheetId: string, userId: string): Compani
     return { error: `${sheet.name} is saved in somebody else's library.` };
   }
   const wanted = sheet.name.trim().toLowerCase();
+  // A copy linked to a row in this library writes home to that row, whatever
+  // it is filed as: a hero handed to the DM is still the same hero, and a
+  // second "companion" row of the same name would leave the first one stale.
   const target =
-    linked?.role === "companion"
-      ? linked
-      : listCharactersForUser(userId, "companion").find((entry) => entry.name.trim().toLowerCase() === wanted) ?? null;
+    linked ??
+    listCharactersForUser(userId, "companion").find((entry) => entry.name.trim().toLowerCase() === wanted) ??
+    null;
   if (target) {
     if (sheet.libraryCharacterId !== target.id) {
       linkSheetToLibrary(sheet.id, target.id);
@@ -582,21 +595,82 @@ export function saveCompanionToLibrary(sheetId: string, userId: string): Compani
 // arrive at the next one as they left this. An ally a player took over with
 // no row goes to that player's library the same way. Guests, summons and the
 // dead stay behind: nobody wants a fallen ally's sheet waiting on the shelf.
-export function carryPartyHome(campaignId: string, storyOwnerId: string | null): void {
+//
+// It says who went home and who did not. Before, a copy that could not be
+// written home was skipped in silence, and nobody found out until the next
+// campaign brought the character in without their gear.
+export type HomeReport = {
+  name: string;
+  saved: boolean;
+  // A new library row, rather than progress written onto one already there.
+  created?: boolean;
+  reason?: string;
+};
+
+export function carryPartyHome(campaignId: string, storyOwnerId: string | null): HomeReport[] {
+  const report: HomeReport[] = [];
+  const outcome = (name: string, saved: CompanionSave | { error: string }): HomeReport =>
+    "error" in saved ? { name, saved: false, reason: saved.error } : { name, saved: true, created: saved.created };
   for (const sheet of listSheets(campaignId)) {
-    if (sheet.libraryCharacterId) {
-      syncProgressToLibrary(sheet.id);
+    if (sheet.summon) {
       continue;
     }
-    if (sheet.summon || sheet.deathSaves?.dead) {
+    if (sheet.libraryCharacterId) {
+      if (syncProgressToLibrary(sheet.id, storyOwnerId)) {
+        report.push({ name: sheet.name, saved: true });
+        continue;
+      }
+      if (sheet.deathSaves?.dead) {
+        continue;
+      }
+      // The link did not take: the row is gone, or it is not this copy's to
+      // write. A lasting ally is saved as one with no link is.
+      if (storyOwnerId && sheet.isCompanion && sheet.companionKind === "party") {
+        report.push(outcome(sheet.name, saveCompanionToLibrary(sheet.id, storyOwnerId)));
+        continue;
+      }
+      if (sheet.isCompanion && sheet.companionKind !== "party") {
+        continue;
+      }
+      report.push({
+        name: sheet.name,
+        saved: false,
+        reason: getCharacter(sheet.libraryCharacterId)
+          ? `${sheet.name}'s library entry belongs to someone else.`
+          : `${sheet.name}'s library entry no longer exists.`,
+      });
+      continue;
+    }
+    if (sheet.deathSaves?.dead) {
       continue;
     }
     if (storyOwnerId && sheet.isCompanion && sheet.companionKind === "party") {
-      saveCompanionToLibrary(sheet.id, storyOwnerId);
+      report.push(outcome(sheet.name, saveCompanionToLibrary(sheet.id, storyOwnerId)));
     } else if (isUnsavedTakenOverAlly(sheet)) {
-      saveCompanionToLibrary(sheet.id, sheet.userId);
+      report.push(outcome(sheet.name, saveCompanionToLibrary(sheet.id, sheet.userId)));
     }
   }
+  return report;
+}
+
+// The line the ended campaign keeps: who went home, who did not and why.
+export function describeHomeReport(report: HomeReport[]): string {
+  const saved = report.filter((entry) => entry.saved);
+  const missed = report.filter((entry) => !entry.saved);
+  const parts: string[] = [];
+  if (saved.length) {
+    parts.push(
+      `Saved to the library with their level, XP, gold, gear and spells: ${saved
+        .map((entry) => `${entry.name}${entry.created ? " (a new library entry)" : ""}`)
+        .join(", ")}.`,
+    );
+  }
+  if (missed.length) {
+    parts.push(
+      `NOT saved: ${missed.map((entry) => `${entry.name} (${entry.reason ?? "unknown"})`).join("; ")} Open their card in the Party tab and tap Save to library.`,
+    );
+  }
+  return parts.length ? parts.join(" ") : "Nobody here plays from a library, so nothing was taken home.";
 }
 
 // A campaign sheet as a library sheet: what play left on it, rested. Hit
