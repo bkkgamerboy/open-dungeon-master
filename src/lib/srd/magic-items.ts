@@ -205,13 +205,26 @@ function defOf(item: WornMagicItem): MagicItemDef | null {
 // someone who may. This is where the 3-slot attunement cap (enforced in
 // db/sheets.ts) finally earns its keep: an item past the cap is never
 // attuned, so its bonus never applies.
+//
+// A rod, a staff, a wand or an orb works "while you hold it" (the Rod of the
+// Pact Keeper, a Staff of Frost, a Wand of the War Mage). The sheet never
+// offers to wear one (src/components/sheet/sheet-state.ts CARRIED_ONLY), so
+// it could never be marked worn and its bonus never applied, however it was
+// attuned. Held counts as carried: it works from the pack, and through
+// attunement where it asks for it.
+const HELD = /\b(wand|rod|staff|orb)\b/i;
+
+export function isHeldItem(def: Pick<MagicItemDef, "name">): boolean {
+  return HELD.test(def.name);
+}
+
 function itemActive(
   item: WornMagicItem,
   def: MagicItemDef,
   equipment: WornMagicItem[],
   wearer: Wearer | undefined,
 ): boolean {
-  if (!def.carried && !isWorn(item, equipment)) {
+  if (!def.carried && !isHeldItem(def) && !isWorn(item, equipment)) {
     return false;
   }
   if (!def.requiresAttunement) {

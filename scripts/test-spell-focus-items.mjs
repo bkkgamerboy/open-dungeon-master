@@ -87,6 +87,35 @@ await test("A limited bonus counts only for its class's spells; different items 
   assert.deepEqual(itemSpellBonus(riders, "wizard"), { attack: 1, dc: 0 });
 });
 
+// Build 36. Played for real (The Amber Gate, Nov 2026): Kramer attuned the
+// rod and his Eldritch Blast still rolled without its +2. The sheet never
+// offers to wear a rod, a staff or a wand (it is held), so with his leather
+// marked worn the rod counted as not worn, and its bonus never applied. A
+// staff's resistance was lost the same way.
+await test("A rod, staff or wand works attuned and carried, as the sheet leaves it, with armour marked worn.", async () => {
+  const asTheSheetLeavesIt = [
+    { name: "Leather", qty: 1, equipped: true },
+    { name: "Rod of the Pact Keeper, +2", qty: 1, attuned: true },
+    { name: "Staff of Frost (+2 Quarterstaff, Ruling Staff)", qty: 1, attuned: true },
+  ];
+  const plain = computeSheetDerived(withGear(warlock, [{ name: "Leather", qty: 1, equipped: true }]));
+  const armed = computeSheetDerived(withGear(warlock, asTheSheetLeavesIt));
+  assert.equal(armed.spellAttack, plain.spellAttack + 2);
+  assert.equal(armed.spellSaveDc, plain.spellSaveDc + 2);
+  const spell = warlock.spellcasting?.cantrips?.[0] ?? warlock.spellcasting?.known?.[0];
+  if (spell) {
+    assert.equal(spellAttackFor(withGear(warlock, asTheSheetLeavesIt), spell), plain.spellAttack + 2);
+  }
+  const riders = magicItemRiders(asTheSheetLeavesIt, warlock);
+  assert.ok(riders.resistances.includes("cold"), "the attuned staff's cold resistance");
+  // Unattuned, the held rod still gives nothing.
+  const idle = computeSheetDerived(withGear(warlock, [{ name: "Leather", qty: 1, equipped: true }, { ...rod, equipped: undefined, attuned: false }]));
+  assert.equal(idle.spellAttack, plain.spellAttack);
+  // A worn item still has to be worn: an amulet attuned but taken off sets nothing.
+  const amulet = magicItemRiders([{ name: "Leather", qty: 1, equipped: true }, { name: "Amulet of Health", qty: 1, attuned: true }], warlock);
+  assert.equal(amulet.abilitySet.con, undefined);
+});
+
 await test("A homebrew item can carry a spell bonus, and the editor and the DM read it in words.", async () => {
   const [effect] = normalizeEffects([{ kind: "spell_bonus", attack: 2, dc: 9, classes: ["Warlock"] }]);
   assert.deepEqual(effect, { kind: "spell_bonus", attack: 2, dc: 3, classes: ["warlock"] });
