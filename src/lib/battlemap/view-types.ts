@@ -110,7 +110,7 @@ export type PlayerMapView = {
   tokenHealth: Record<string, HealthWord>;
   tokenAuras: Record<string, Array<{ id: string; radiusFeet: number; tone: AuraTone }>>;
   tokenFootprint: Record<string, Footprint>;
-  tokenElevation: Record<string, "flying" | "burrowing">;
+  tokenElevation: Record<string, "flying" | "burrowing" | "submerged">;
   turn: { tokenId: string; round: number } | null;
   targets: Record<string, string[]>;
   // What each enemy this viewer can see is about to do: the DM's declaration

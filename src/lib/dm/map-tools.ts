@@ -31,7 +31,7 @@ import { nearestSquares, tilesApart } from "@/lib/dm/board-reach";
 
 import {
   blocksMove,
-
+  TERRAIN,
   tileAt,
   tileIndex,
   TILE_FEET,
@@ -187,13 +187,13 @@ export const setMovementTool: ToolDef = {
   function: {
     name: "set_movement",
     description:
-      "Record that a combatant is now flying, burrowing or back on foot (Fly spell, wings, Wild Shape into a bird, a burrowing worm). Only a creature with a flying speed takes to the air (the Fly spell cast with cast_buff, wings, a flying form, a stat block's fly); the server refuses the rest. A flying character moves at their flying speed (Fly: 60 feet), and one whose flight ends comes down prone. Flying creatures pass over ground obstacles and are missed by tremorsense; the board draws them lifted.",
+      "Record that a combatant is now flying, burrowing, under the water, or back on foot (Fly spell, wings, Wild Shape into a bird, a burrowing worm, a crocodile dragging its prey under, a hero diving). Only a creature with a flying speed takes to the air (the Fly spell cast with cast_buff, wings, a flying form, a stat block's fly); the server refuses the rest. A flying character moves at their flying speed (Fly: 60 feet), and one whose flight ends comes down prone. Flying creatures pass over ground obstacles and are missed by tremorsense; the board draws them lifted. dive: only in a water square; the combatant is then under the water and the server applies the underwater combat rules to it (melee disadvantage except daggers, javelins, shortswords, spears and tridents without a swimming speed; ranged limits; fire resistance). A creature merely standing in a water square is wading or swimming at the surface and fights as on land. Coming out onto dry ground ends a dive.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         tokenName: { type: "string", description: "Character or enemy name or id, exactly as shown on the battle map in GAME STATE." },
-        movement: { type: "string", enum: ["walk", "fly", "burrow"] },
+        movement: { type: "string", enum: ["walk", "fly", "burrow", "dive"] },
         reason: { type: "string" },
       },
       required: ["tokenName", "movement"],
@@ -341,7 +341,7 @@ export function handleSetMovement(
   try {
     args = movementArgsSchema.parse(JSON.parse(rawArguments || "{}"));
   } catch {
-    return { error: "Invalid arguments: set_movement needs tokenName and movement (walk, fly or burrow)." };
+    return { error: "Invalid arguments: set_movement needs tokenName and movement (walk, fly, burrow or dive)." };
   }
   const token = resolveAnyToken(map, board.id, args.tokenName, sheets, sheetsById);
   if (!token) {
@@ -355,6 +355,11 @@ export function handleSetMovement(
       error: `${token.name} has no flying speed, so they cannot take to the air: a creature flies with a flying speed (the Fly spell, wings, a flying Wild Shape form, a stat block's fly). Nothing changed.`,
     };
   }
+  if (args.movement === "dive" && tileAt(map.terrain, map.width, token.x, token.y) !== TERRAIN.water) {
+    return {
+      error: `${token.name} is not in a water square, so there is nothing to go under: move them into the water first. Nothing changed.`,
+    };
+  }
   setTokenMovement(token.id, args.movement);
   publishBattleMapUpdate(campaign.id);
   return {
@@ -366,7 +371,9 @@ export function handleSetMovement(
         ? `${token.name} is airborne: ground hazards and tremorsense no longer apply.`
         : args.movement === "burrow"
           ? `${token.name} is underground: unseen from above unless it surfaces.`
-          : `${token.name} is back on foot.`,
+          : args.movement === "dive"
+            ? `${token.name} is under the water: the server applies the underwater combat rules to them until they surface (set_movement walk) or come out onto dry ground.`
+            : `${token.name} is back on foot.`,
   };
 }
 

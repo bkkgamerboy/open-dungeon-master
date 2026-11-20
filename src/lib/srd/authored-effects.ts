@@ -21,7 +21,7 @@
 //
 // Pure and database-free, like the rest of src/lib/srd.
 
-import { matchArmor } from "@/lib/srd/armor";
+import { isWorn, matchArmor } from "@/lib/srd/armor";
 import { AUTHORED_DATA_A } from "@/lib/srd/authored-effects-data";
 import { AUTHORED_DATA_A2 } from "@/lib/srd/authored-effects-data-b";
 import { AUTHORED_DATA_B } from "@/lib/srd/authored-effects-data2";
@@ -134,9 +134,8 @@ export function hasCondition(sheet: AuthoredSheet, name: string): boolean {
 // marked worn when any are, otherwise everything carried.
 export function wearsHeavy(sheet: AuthoredSheet): boolean {
   const items = sheet.equipment ?? [];
-  const anyExplicit = items.some((item) => item.equipped);
   return items.some((item) => {
-    if (anyExplicit && !item.equipped) {
+    if (!isWorn(item, items)) {
       return false;
     }
     return (item.gear?.armor?.category ?? matchArmor(item.name)?.category) === "heavy";

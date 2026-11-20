@@ -8,6 +8,7 @@ import type {
   TokenMovement,
   XY,
 } from "@/lib/battlemap/types";
+import { TERRAIN, tileAt } from "@/lib/battlemap/types";
 import type { MapTheme } from "@/lib/battlemap/generate";
 import {
   normalizeBackdrop,
@@ -182,7 +183,7 @@ function mapToken(row: TokenRow): BattleToken {
     burnsUntil: row.burns_until ?? 0,
     lightMinutes: row.light_minutes ?? 0,
     hidden: row.hidden === 1,
-    movement: row.movement === "fly" || row.movement === "burrow" ? row.movement : "walk",
+    movement: row.movement === "fly" || row.movement === "burrow" || row.movement === "dive" ? row.movement : "walk",
     // Read back through the same guard it was written through.
     stamp: isStampId(row.stamp) ? row.stamp : "",
   };
@@ -444,6 +445,22 @@ export function moveToken(tokenId: string, x: number, y: number, movedThisRound:
   getDatabase()
     .prepare(`UPDATE battle_tokens SET x = ?, y = ?, moved_this_round = ?, updated_at = ? WHERE id = ?`)
     .run(x, y, movedThisRound, nowIso(), tokenId);
+  surfaceOnDryGround(tokenId, x, y);
+}
+
+// A diver that comes out onto dry ground is on foot again: under the water
+// only means anything in a water square.
+function surfaceOnDryGround(tokenId: string, x: number, y: number) {
+  const db = getDatabase();
+  const diver = db
+    .prepare(
+      `SELECT m.terrain AS terrain, m.width AS width FROM battle_tokens t JOIN battle_maps m ON m.id = t.map_id
+        WHERE t.id = ? AND t.movement = 'dive'`,
+    )
+    .get(tokenId) as { terrain: string; width: number } | undefined;
+  if (diver && tileAt(diver.terrain, diver.width, x, y) !== TERRAIN.water) {
+    db.prepare(`UPDATE battle_tokens SET movement = 'walk', updated_at = ? WHERE id = ?`).run(nowIso(), tokenId);
+  }
 }
 
 export function getToken(tokenId: string): BattleToken | null {
@@ -459,9 +476,8 @@ export function getToken(tokenId: string): BattleToken | null {
 // is not the combatant walking. It also skips terrain and reach entirely;
 // the caller checks what it wants to check (src/lib/dm/board.ts).
 export function placeToken(tokenId: string, x: number, y: number) {
-  getDatabase()
-    .prepare(`UPDATE battle_tokens SET x = ?, y = ?, updated_at = ? WHERE id = ?`)
-    .run(x, y, nowIso(), tokenId);
+  getDatabase().prepare(`UPDATE battle_tokens SET x = ?, y = ?, updated_at = ? WHERE id = ?`).run(x, y, nowIso(), tokenId);
+  surfaceOnDryGround(tokenId, x, y);
 }
 
 // Under the sky or a roof. Null hands the decision back to the theme.

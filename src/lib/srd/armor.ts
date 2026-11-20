@@ -379,6 +379,41 @@ export type AcBreakdown = {
 // items marked worn count, but a character who has never touched the toggle
 // wears the best armor and shield they carry, so existing sheets keep
 // working without an edit.
+// The suit and the shield the AC is worked out from, among the pieces worn:
+// the suit that gives the most, and the best shield. Also what a sheet whose
+// wear was never set keeps on when it is first set (src/lib/srd/wear.ts).
+type WornPiece = { item: WornItem; armor: SrdArmor; bonus: number; proficientAnyway: boolean };
+
+export function pickArmor(
+  worn: WornItem[],
+  dexMod: number,
+  mediumArmorMaster?: boolean,
+): { armorItem: WornPiece | null; shieldItem: WornPiece | null } {
+  let armorItem: WornPiece | null = null;
+  let shieldItem: WornPiece | null = null;
+  for (const item of worn) {
+    const resolved = armorOfRow(item);
+    if (!resolved) {
+      continue;
+    }
+    const { armor } = resolved;
+    if (armor.category === "shield") {
+      if (!shieldItem || armor.baseAc + resolved.bonus > shieldItem.armor.baseAc + shieldItem.bonus) {
+        shieldItem = { item, ...resolved };
+      }
+      continue;
+    }
+    const score = armor.baseAc + resolved.bonus + dexThrough(armor, dexMod, mediumArmorMaster);
+    const bestScore = armorItem
+      ? armorItem.armor.baseAc + armorItem.bonus + dexThrough(armorItem.armor, dexMod, mediumArmorMaster)
+      : -Infinity;
+    if (score > bestScore) {
+      armorItem = { item, ...resolved };
+    }
+  }
+  return { armorItem, shieldItem };
+}
+
 export function computeArmorClass(input: {
   equipment: WornItem[];
   armorProfs: string[];
@@ -395,30 +430,7 @@ export function computeArmorClass(input: {
   mediumArmorMaster?: boolean;
 }): AcBreakdown {
   const worn = input.equipment.filter((item) => isWorn(item, input.equipment));
-
-  type Piece = { item: WornItem; armor: SrdArmor; bonus: number; proficientAnyway: boolean };
-  let armorItem: Piece | null = null;
-  let shieldItem: Piece | null = null;
-  for (const item of worn) {
-    const resolved = armorOfRow(item);
-    if (!resolved) {
-      continue;
-    }
-    const { armor } = resolved;
-    if (armor.category === "shield") {
-      if (!shieldItem || armor.baseAc + resolved.bonus > shieldItem.armor.baseAc + shieldItem.bonus) {
-        shieldItem = { item, ...resolved };
-      }
-      continue;
-    }
-    const score = armor.baseAc + resolved.bonus + dexThrough(armor, input.dexMod, input.mediumArmorMaster);
-    const bestScore = armorItem
-      ? armorItem.armor.baseAc + armorItem.bonus + dexThrough(armorItem.armor, input.dexMod, input.mediumArmorMaster)
-      : -Infinity;
-    if (score > bestScore) {
-      armorItem = { item, ...resolved };
-    }
-  }
+  const { armorItem, shieldItem } = pickArmor(worn, input.dexMod, input.mediumArmorMaster);
 
   const parts: string[] = [];
   let ac: number;

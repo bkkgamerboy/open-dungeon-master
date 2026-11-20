@@ -188,9 +188,14 @@ async function adjust(user, body) {
 await test("putting armor on and off through the player's route moves the stored armor class", async () => {
   wear(["Chain Mail", "Shield", "Longsword"], { dex: 14 });
   assert.equal(world.sheet(hero.id).ac, 18);
-  // The first toggle makes wearing explicit: what is not marked is not worn.
+  // The first toggle makes wearing explicit: what is not marked is not worn,
+  // but what the AC was counting (the suit, the shield) is marked worn first
+  // (build 37, src/lib/srd/wear.ts), so the AC does not move.
   let reply = await adjust(player, { gear: { "Chain Mail": { equipped: true } } });
   assert.equal(reply.status, 200, reply.body.error);
+  assert.equal(world.sheet(hero.id).ac, 18);
+  assert.equal(world.sheet(hero.id).equipment.find((item) => item.name === "Longsword").equipped, false);
+  reply = await adjust(player, { gear: { Shield: { equipped: false } } });
   assert.equal(world.sheet(hero.id).ac, 16);
   reply = await adjust(player, { gear: { Shield: { equipped: true } } });
   assert.equal(world.sheet(hero.id).ac, 18);
@@ -200,7 +205,7 @@ await test("putting armor on and off through the player's route moves the stored
 
 await test("a character who has taken off their armor and shield is unarmored: 10 + DEX", async () => {
   wear(["Chain Mail", "Shield"], { dex: 14 });
-  await adjust(player, { gear: { Shield: { equipped: true } } });
+  await adjust(player, { gear: { "Chain Mail": { equipped: false } } });
   assert.equal(world.sheet(hero.id).ac, 10 + 2 + 2);
   const reply = await adjust(player, { gear: { Shield: { equipped: false } } });
   assert.deepEqual(reply.body.sheet.equipment.map((item) => item.equipped), [false, false]);
@@ -316,6 +321,9 @@ await test("A character wearing armor they lack proficiency with cannot cast spe
 
 await test("Armor takes 1 to 10 minutes to don and a shield an action; nobody changes into plate in the middle of a fight.", async () => {
   wear(["Plate", "Shield"], { str: 16 });
+  // Both off, said so: the first switch would otherwise keep on what the AC
+  // was counting (src/lib/srd/wear.ts).
+  world.patch(hero.id, { equipment: [{ name: "Plate", qty: 1, equipped: false }, { name: "Shield", qty: 1, equipped: false }] });
   // The shield goes on with the hero's action, on their own turn.
   const shield = await kit.onTurnOf(hero.id, () => adjust(player, { gear: { Shield: { equipped: true } } }));
   assert.equal(shield.status, 200, shield.body.error);

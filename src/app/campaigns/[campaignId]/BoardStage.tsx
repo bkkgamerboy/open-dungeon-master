@@ -215,7 +215,7 @@ export type TokenFigureProps = {
   footprint: Footprint;
   health?: HealthWord;
   conditions?: Array<{ id: string; label: string; rounds?: number; note?: string }>;
-  elevation?: "flying" | "burrowing";
+  elevation?: "flying" | "burrowing" | "submerged";
   isCurrent: boolean;
   held: boolean;
   hp?: { current: number; max: number };
@@ -308,7 +308,7 @@ export const TokenFigure = memo(function TokenFigure({
             stroke={ring}
             strokeOpacity={0.5}
             strokeWidth={1}
-            strokeDasharray={elevation === "burrowing" ? "3 2" : undefined}
+            strokeDasharray={elevation === "burrowing" || elevation === "submerged" ? "3 2" : undefined}
           />
         ) : null}
         {/* The current turn: a gold ring with a slow walking dash and a soft
@@ -359,7 +359,7 @@ export const TokenFigure = memo(function TokenFigure({
             fill={FILL_BY_KIND[token.kind]}
             stroke={ring}
             strokeWidth={token.mine || held ? 2.5 : 1.5}
-            strokeDasharray={token.hidden || elevation === "burrowing" ? "3 2" : undefined}
+            strokeDasharray={token.hidden || elevation === "burrowing" || elevation === "submerged" ? "3 2" : undefined}
           />
         )}
         {/* The initial is the last resort: it sits under the face, so it shows
@@ -511,7 +511,7 @@ export const TokenFigure = memo(function TokenFigure({
             ) : null}
           </g>
         ) : null}
-        {/* Elevation glyph: a wing when flying, a mound when burrowing. */}
+        {/* Elevation glyph: a wing when flying, a mound when burrowing, waves under the water. */}
         {elevation ? (
           <use
             href={`#cond-${elevation}`}

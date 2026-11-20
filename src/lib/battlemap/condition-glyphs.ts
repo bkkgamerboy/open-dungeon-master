@@ -47,6 +47,7 @@ export const CONDITION_GLYPHS: Record<string, ConditionGlyph> = {
   shielded: { id: "shielded", label: "Shielded", tone: WARD, path: "M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2zM6 8l1.5 1.5L10.5 6" },
   flying: { id: "flying", label: "Flying", tone: NEUTRAL, path: "M2 9c2-4 4-5 6-5s4 1 6 5c-2-1-4-1-6 0-2-1-4-1-6 0z" },
   burrowing: { id: "burrowing", label: "Burrowing", tone: NEUTRAL, path: "M2 7h12M4 7c1 3 2 5 4 5s3-2 4-5" },
+  submerged: { id: "submerged", label: "Under water", tone: NEUTRAL, path: "M2 6c2-2 4 2 6 0s4 2 6 0M2 10c2-2 4 2 6 0s4 2 6 0" },
   // What the later engine waves write (spells, subclass features, the turn's
   // end): each keyed by its name or its first word.
   inspiration: { id: "inspiration", label: "Inspiration", tone: BLESS, path: "M8 2l1.8 4 4.2.4-3.2 2.8 1 4.2L8 11.2 4.2 13.4l1-4.2L2 6.4 6.2 6 8 2z" },
@@ -168,6 +169,8 @@ const GLYPH_ICON: Record<string, string> = {
   searing: "cursed",
   sickened: "poisoned",
   levitating: "flying",
+  // No painting of its own yet: below the surface, as a burrower is.
+  submerged: "burrowing",
   suggested: "charmed",
   gaseous: "flying",
   enfeebled: "exhaustion",

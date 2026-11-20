@@ -65,8 +65,8 @@ function paladinAura(sheet: CharacterSheet): { radiusFeet: number; tone: AuraTon
   return { radiusFeet: sheet.level >= 18 ? 30 : 10, tone: "ward" };
 }
 
-function elevationOf(movement: TokenMovement): "flying" | "burrowing" | null {
-  return movement === "fly" ? "flying" : movement === "burrow" ? "burrowing" : null;
+function elevationOf(movement: TokenMovement): "flying" | "burrowing" | "submerged" | null {
+  return movement === "fly" ? "flying" : movement === "burrow" ? "burrowing" : movement === "dive" ? "submerged" : null;
 }
 
 export function sheetDarkvisionTiles(sheet: CharacterSheet): number {

@@ -267,15 +267,27 @@ export function rollPcAttack(plan: AttackPlan, strike: Strike): Record<string, u
     budget.oncePerTurn.push(BRUTAL_ATTACK_USED);
     storeBudget(encounter, budget);
   }
-  // Piercer: once a turn, one of the piercing damage dice is rerolled.
+  // Piercer: once a turn, one of the attack's damage dice may be rerolled,
+  // and the new roll stands. The player chooses, so the server takes the
+  // die that most wants it: the one furthest below its average, across every
+  // dice term the attack rolled (the weapon's, a Sneak Attack's, a crit's).
+  // A die at or above its average is kept, because a reroll would more
+  // likely lower it: before build 37 the lowest die was rerolled whatever it
+  // showed, a 7 on a d8 included, and only the first dice term was looked at,
+  // so a rogue's Sneak Attack dice were never chosen.
+  let piercerNote = "";
   if (typeFeat === "Piercer" && budget && !budget.oncePerTurn.includes(PIERCER_USED)) {
-    const dice = damageOutcome.terms.find((term) => term.kind === "dice");
-    const lowest = dice && dice.kind === "dice" ? dice.dice.filter((die) => die.kept).sort((a, b) => a.value - b.value)[0] : undefined;
-    if (dice && lowest) {
-      const fresh = rollExpression(`1d${lowest.sides}`).total;
-      context.notes.push(`Piercer: a ${lowest.value} on a d${lowest.sides} is rerolled to ${fresh}`);
-      damageOutcome = { ...damageOutcome, total: damageOutcome.total - lowest.value + fresh };
-      lowest.value = fresh;
+    const shortfall = (die: { value: number; sides: number }) => (die.sides + 1) / 2 - die.value;
+    const worst = damageOutcome.terms
+      .flatMap((term) => (term.kind === "dice" && term.sign === 1 ? term.dice.filter((die) => die.kept) : []))
+      .sort((a, b) => shortfall(b) - shortfall(a))[0];
+    if (worst && shortfall(worst) > 0) {
+      const was = worst.value;
+      const fresh = rollExpression(`1d${worst.sides}`).total;
+      context.notes.push(`Piercer: a ${was} on a d${worst.sides} is rerolled to ${fresh}`);
+      damageOutcome = { ...damageOutcome, total: damageOutcome.total - was + fresh };
+      worst.value = fresh;
+      piercerNote = ` · Piercer: ${was} rerolled to ${fresh}`;
       budget.oncePerTurn.push(PIERCER_USED);
       storeBudget(encounter, budget);
     }
@@ -285,7 +297,7 @@ export function rollPcAttack(plan: AttackPlan, strike: Strike): Record<string, u
     characterId: sheet.id,
     requestedBy: "dm",
     kind: "damage",
-    detail: strike.detail,
+    detail: `${strike.detail}${piercerNote}`,
     result: damageOutcome,
     attacker: { kind: "sheet", id: sheet.id, name: sheet.name },
   });

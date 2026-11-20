@@ -4,7 +4,8 @@ import { touchCampaign } from "@/lib/db/campaigns";
 import { effectiveMaxHp, maxHpRiders, type ConditionMetaMap } from "@/lib/dm/condition-logic";
 import { populateFeaturesForClasses } from "@/lib/srd/features";
 import { populateResources } from "@/lib/srd/class-resources";
-import { XP_THRESHOLDS, deriveAc } from "@/lib/srd";
+import { XP_THRESHOLDS, abilityMod, deriveAc } from "@/lib/srd";
+import { keepWornOnFirstSet } from "@/lib/srd/wear";
 import { settleLevelChange, withoutDuplicateClasses } from "@/lib/srd/level-change";
 import { normalizeSpellcasting } from "@/lib/srd/spell-lists";
 import { settleAttunement, type Wearer } from "@/lib/srd/magic-items";
@@ -719,7 +720,11 @@ export function patchSheet(sheetId: string, patch: FullPatchSheetInput): Charact
             existing.campaignId,
           )
         : existing.resources),
-    equipment: patch.equipment ?? existing.equipment,
+    // A pack that never said what it wore, replaced by one that does, keeps
+    // on what was counting unless the new pack marks it (src/lib/srd/wear.ts).
+    equipment: patch.equipment
+      ? keepWornOnFirstSet(existing.equipment, patch.equipment, abilityMod((patch.abilities ?? existing.abilities).dex))
+      : existing.equipment,
     hitDice: hitDicePools?.length
       ? poolsMirror(hitDicePools, classes[0]?.id)
       : (patch.hitDice ?? existing.hitDice),

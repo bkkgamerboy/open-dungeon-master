@@ -5,7 +5,7 @@
 // re-exports everything here for the callers that have always found it
 // there.
 import { RAGING } from "@/lib/srd/class-resources";
-import { matchArmor, type SrdArmor } from "@/lib/srd/armor";
+import { isWorn, matchArmor, type SrdArmor } from "@/lib/srd/armor";
 
 function has(conditions: string[], names: string[]): string | null {
   const lowered = conditions.map((entry) => entry.toLowerCase());
@@ -128,9 +128,8 @@ export function wearsHeavyArmor(
   equipment: Array<{ name: string; equipped?: boolean; gear?: { armor?: SrdArmor } }> | undefined,
 ): boolean {
   const items = equipment ?? [];
-  const anyExplicit = items.some((item) => item.equipped);
   return items.some((item) => {
-    if (anyExplicit && !item.equipped) {
+    if (!isWorn(item, items)) {
       return false;
     }
     return (item.gear?.armor ?? matchArmor(item.name))?.category === "heavy";

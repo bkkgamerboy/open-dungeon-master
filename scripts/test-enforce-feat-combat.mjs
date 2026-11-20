@@ -95,7 +95,12 @@ const piercer = world.addHero({
   equipment: [{ name: "Rapier", qty: 1 }],
   feats: ["Piercer"],
 });
-const heroes = [greatWeapon, plain, sharpshooter, gunner, adept, evoker, duelist, slayer, powerful, deadeye, polearm, lucky, brawler, piercer];
+const piercingRogue = world.addHero({
+  class: "rogue", level: 5, maxHp: 38, abilities: { str: 10, dex: 16 }, proficiencies: TRAINED,
+  equipment: [{ name: "Rapier", qty: 1 }],
+  feats: ["Piercer"],
+});
+const heroes = [greatWeapon, plain, sharpshooter, gunner, adept, evoker, duelist, slayer, powerful, deadeye, polearm, lucky, brawler, piercer, piercingRogue];
 const base = new Map(heroes.map((hero) => [hero.id, world.sheet(hero.id)]));
 
 async function stage(hero, { count = 1, apart = 1 } = {}) {
@@ -361,6 +366,31 @@ await test("Piercer: a piercing critical hit rolls one more die, and once a turn
   const notes = crit.result.conditionEffects ?? [];
   assert.ok(notes.some((note) => /Piercer: a 1 on a d8 is rerolled to 6/.test(note)), JSON.stringify(notes));
   assert.equal(crit.damage.total, 6 + 8 + 8 + abilityMod(16), "three dice on the crit, the 1 rerolled");
+  assert.match(String(crit.damage.detail), /Piercer: 1 rerolled to 6/, "the reroll shows on the damage card");
+});
+
+// Build 37. Played for real: Swift's Piercer rerolled whatever die was
+// lowest, even a high one, and never looked past the weapon's own die.
+await test("Piercer keeps a die at or above its average: a 7 on a d8 is not rerolled", async () => {
+  const [enemy] = await stage(piercer);
+  const swing = await kit.swing(piercer.id, enemy.id, [15, 7, 1], { weapon: "Rapier" });
+  assert.equal(swing.ok, true, swing.error);
+  const notes = swing.result.conditionEffects ?? [];
+  assert.ok(!notes.some((note) => /Piercer/.test(note)), JSON.stringify(notes));
+  assert.equal(swing.damage.total, 7 + abilityMod(16));
+});
+
+await test("Piercer picks the worst die across the attack, a Sneak Attack die included", async () => {
+  const [enemy] = await stage(piercingRogue);
+  const prone = await world.invoke("set_enemy_condition", { enemyId: enemy.id, condition: "prone" });
+  assert.equal(prone.ok, true, JSON.stringify(prone));
+  // Advantage on the prone target: two d20s, then 1d8 for the rapier and
+  // 3d6 Sneak Attack; the Sneak Attack's 1 is the die rerolled, to a 5.
+  const swing = await kit.swing(piercingRogue.id, enemy.id, [15, 15, 8, 1, 6, 6, 5], { weapon: "Rapier" });
+  assert.equal(swing.ok, true, swing.error);
+  const notes = swing.result.conditionEffects ?? [];
+  assert.ok(notes.some((note) => /Piercer: a 1 on a d6 is rerolled to 5/.test(note)), JSON.stringify(notes));
+  assert.equal(swing.damage.total, 8 + 5 + 6 + 6 + abilityMod(16));
 });
 
 await test("the DM prompt carries every feat's rules, and a content pack feat's numbers reach the derived sheet (issue #147)", async () => {

@@ -437,3 +437,28 @@ export function lastingCompanionBlock(
 export function normalizeGameSettings(raw: unknown): GameSettings {
   return parseKeepingValid(gameSettingsSchema, raw ?? {});
 }
+
+// Prep brought into a campaign (src/lib/db/content-import.ts) carries the
+// workshop's variant rules with its house rules: they are the same decision.
+// But a workshop's settings cannot tell "decided off" from "never touched",
+// so copying them wholesale switched off what the table chose at creation:
+// The Amber Gate lost Flanking that way, a rule its player always plays
+// with. So prep only ever switches a rule on, and a rest variant only moves
+// off the standard one.
+export function mergeVariantRules(
+  mine: GameSettings["variantRules"],
+  theirs: GameSettings["variantRules"],
+): GameSettings["variantRules"] {
+  const merged: Record<string, unknown> = { ...mine };
+  for (const [key, value] of Object.entries(theirs)) {
+    const current = (mine as Record<string, unknown>)[key];
+    if (typeof value === "boolean") {
+      merged[key] = Boolean(current) || value;
+    } else if (key === "restVariant") {
+      merged[key] = value !== "standard" ? value : (current ?? value);
+    } else if (current === undefined) {
+      merged[key] = value;
+    }
+  }
+  return merged as GameSettings["variantRules"];
+}

@@ -188,7 +188,7 @@ test("set_movement records flying and the projection reports it", () => {
   const again = handleSetMovement(live(), JSON.stringify({ tokenName: "Goblin", movement: "fly" }), sheets, sheetsById);
   assert.match(again.note, /Already/);
   const bad = handleSetMovement(live(), JSON.stringify({ tokenName: "Goblin", movement: "swim" }), sheets, sheetsById);
-  assert.match(bad.error, /walk, fly or burrow/);
+  assert.match(bad.error, /walk, fly, burrow or dive/);
   const view = buildPlayerMapView(campaign.id, alice.id, { fullVision: true });
   const goblinToken = getTokenByRef(map.id, goblin.id);
   assert.equal(view.tokenElevation[goblinToken.id], "flying");

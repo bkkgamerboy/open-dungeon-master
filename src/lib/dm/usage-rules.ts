@@ -8,7 +8,7 @@
 //
 // Database-free like the other *-logic modules, so the route stays a thin
 // shell and scripts can exercise every branch.
-import { armorOfRow } from "@/lib/srd/armor";
+import { armorOfRow, isWorn } from "@/lib/srd/armor";
 import { gearDefOfRow } from "@/lib/srd/magic-gear";
 import { attunementProblem } from "@/lib/srd/magic-items";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
@@ -60,7 +60,6 @@ export function gearChanges(
   sheet: Pick<CharacterSheet, "equipment">,
   gear: NonNullable<UsageAsk["gear"]>,
 ): GearChanges {
-  const anyExplicit = sheet.equipment.some((item) => item.equipped);
   const changes: GearChanges = { armor: [], shields: [], attunement: [] };
   for (const item of sheet.equipment) {
     const entry = gear[item.name];
@@ -70,7 +69,7 @@ export function gearChanges(
     if (entry.attuned !== undefined && entry.attuned !== Boolean(item.attuned)) {
       changes.attunement.push(item.name);
     }
-    const worn = item.equipped ?? !anyExplicit;
+    const worn = isWorn(item, sheet.equipment);
     if (entry.equipped === undefined || entry.equipped === worn) {
       continue;
     }

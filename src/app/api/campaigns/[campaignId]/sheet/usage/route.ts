@@ -12,6 +12,9 @@ import { canAct } from "@/lib/dm/can-act";
 import { recordManualTicks } from "@/lib/dm/manual-ticks";
 import { attunementRefusal, gearChanges, usageLowers, usageSpendsHitDice } from "@/lib/dm/usage-rules";
 import { armorChangeMinutes } from "@/lib/dm/don-doff";
+import { abilityMod } from "@/lib/srd";
+import { wearingIsExplicit } from "@/lib/srd/armor";
+import { settleWear } from "@/lib/srd/wear";
 import { advanceClock } from "@/lib/db/clock";
 
 export const runtime = "nodejs";
@@ -231,10 +234,15 @@ export async function POST(
     const gear = parsed.data.gear;
     // Equipping is opt-in per sheet: the first time anyone touches a toggle,
     // every other item is explicitly marked unworn so the AC engine stops
-    // treating the whole pack as worn.
-    const explicit = sheet.equipment.some((item) => item.equipped) ||
+    // treating the whole pack as worn. What the pack was counting until then
+    // (the suit, the shield, magic worn on the body) is marked worn first, so
+    // putting on an amulet does not take the armor off (src/lib/srd/wear.ts).
+    const firstSet = !wearingIsExplicit(sheet.equipment) &&
+      Object.values(gear).some((entry) => entry.equipped !== undefined);
+    const base = firstSet ? settleWear(sheet.equipment, abilityMod(sheet.abilities.dex)) : sheet.equipment;
+    const explicit = base.some((item) => item.equipped) ||
       Object.values(gear).some((entry) => entry.equipped);
-    const equipment = sheet.equipment.map((item) => {
+    const equipment = base.map((item) => {
       const entry = gear[item.name];
       // An attuned item works only while worn, so attuning on a sheet that
       // says what it wears puts the item on.

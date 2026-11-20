@@ -141,13 +141,49 @@ await test("The long jump is the Strength score in feet (half standing) and the 
 
 // ---- underwater combat ----
 
+// Both under the water: in water squares, and dived (set_movement dive).
+// Standing in a water square alone is wading, which fights as on land.
 async function submerged() {
+  const enemy = await stage(fighter);
+  kit.openField([[5, 5, "~"], [5, 6, "~"], [5, 7, "~"], [5, 8, "~"], [5, 14, "~"]]);
+  kit.place(fighter.id, 5, 5);
+  kit.place(enemy.id, 5, 6);
+  for (const tokenName of [fighter.id, enemy.id]) {
+    const dove = await world.invoke("set_movement", { tokenName, movement: "dive" });
+    assert.equal(dove.ok, true, JSON.stringify(dove));
+  }
+  return enemy;
+}
+
+await test("Wading in a water square is not underwater: a longsword swings as on land, and fire burns in full.", async () => {
   const enemy = await stage(fighter);
   kit.openField([[5, 5, "~"], [5, 6, "~"]]);
   kit.place(fighter.id, 5, 5);
   kit.place(enemy.id, 5, 6);
-  return enemy;
-}
+  const sword = await kit.swing(fighter.id, enemy.id, [15, 3], { weapon: "Longsword" });
+  assert.equal(sword.ok, true, sword.error);
+  assert.equal(d20Faces(sword.toHit).length, 1, "a longsword swung while wading was at disadvantage");
+  const before = world.sheet(fighter.id).currentHp;
+  const burned = await world.invoke("apply_damage", { characterId: fighter.id, amount: 10, type: "fire" });
+  assert.equal(burned.ok, true, burned.error);
+  assert.equal(world.sheet(fighter.id).currentHp, before - 10, "wading gave fire resistance");
+  await world.invoke("heal", { characterId: fighter.id, amount: 10 });
+});
+
+await test("A dive needs water, and coming out onto dry ground ends it.", async () => {
+  const enemy = await stage(fighter);
+  kit.openField([[5, 5, "~"]]);
+  kit.place(fighter.id, 5, 5);
+  kit.place(enemy.id, 5, 6);
+  const dry = await world.invoke("set_movement", { tokenName: enemy.id, movement: "dive" });
+  assert.equal(dry.ok, false, "a dive on dry ground was allowed");
+  const dove = await world.invoke("set_movement", { tokenName: fighter.id, movement: "dive" });
+  assert.equal(dove.ok, true, JSON.stringify(dove));
+  kit.place(fighter.id, 5, 4);
+  const { getBattleMapForEncounter, getTokenByRef } = await import("../src/lib/db/battle-maps.ts");
+  const map = getBattleMapForEncounter(world.encounter().id);
+  assert.equal(getTokenByRef(map.id, fighter.id).movement, "walk");
+});
 
 await test("Underwater, a melee weapon attack by a creature without a swimming speed is at disadvantage unless the weapon is a dagger, javelin, shortsword, spear or trident.", async () => {
   const enemy = await submerged();

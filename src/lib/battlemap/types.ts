@@ -52,8 +52,10 @@ export type AdhocTokenKind = (typeof ADHOC_TOKEN_KINDS)[number];
 // How a token is getting about right now. Walking is the default; flying
 // lifts it over the ground (tremorsense misses it, the board draws it
 // raised); burrowing sinks it (set by the set_movement tool, by Wild Shape
-// into a flying form, or by the DM).
-export const TOKEN_MOVEMENTS = ["walk", "fly", "burrow"] as const;
+// into a flying form, or by the DM). Diving takes it under the water of a
+// water square: only then does it fight underwater (src/lib/dm/underwater.ts).
+// Standing in a water square without it is wading, or swimming at the surface.
+export const TOKEN_MOVEMENTS = ["walk", "fly", "burrow", "dive"] as const;
 export type TokenMovement = (typeof TOKEN_MOVEMENTS)[number];
 
 export type BattleToken = {

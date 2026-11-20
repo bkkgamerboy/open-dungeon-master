@@ -1,7 +1,11 @@
 // Underwater combat (SRD 5.1, Combat: Underwater Combat). On the board a
-// creature standing in a water square ("~", a swim) is under the water:
-// ODM's water squares are the deep kind every walker swims through, so they
-// are read as full immersion. A creature flying over them is not in them.
+// creature is under the water when it stands in a water square ("~") and has
+// dived (set_movement dive: it went under, or it was dragged under). One
+// standing in a water square without diving is wading a ford or swimming at
+// the surface, and fights as on land: before build 37 every water square
+// counted as full immersion, so a rogue knee-deep at a pool's edge swung his
+// rapier at disadvantage and lost his Sneak Attack. A creature flying over
+// the water is not in it.
 //   - A melee weapon attack by a creature without a swimming speed is at
 //     disadvantage unless the weapon is a dagger, javelin, shortsword, spear
 //     or trident.
@@ -56,7 +60,7 @@ export function isImmersed(campaignId: string, refId: string): boolean {
   const encounter = getActiveBoard(campaignId);
   const map = encounter ? getBattleMapForEncounter(encounter.id) : null;
   const token = map ? getTokenByRef(map.id, refId) : null;
-  if (!map || !token || token.movement === "fly") {
+  if (!map || !token || token.movement !== "dive") {
     return false;
   }
   return tileAt(map.terrain, map.width, token.x, token.y) === TERRAIN.water;

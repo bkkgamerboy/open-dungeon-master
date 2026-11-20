@@ -69,6 +69,7 @@ const {
   createCampaign,
   getCampaignById,
   listCampaignsForUser,
+  updateGameSettings,
 } = await import("../src/lib/db/campaigns.ts");
 const {
   createWorkshop,
@@ -377,6 +378,31 @@ test("capturing a table's rules round-trips them into the library", () => {
   assert.equal(captured.variantRules.encumbrance, true);
   assert.equal(captured.variantRules.restVariant, "gritty");
   assert.match(captured.houseRulesText, /a week/);
+});
+
+test("a prep import never switches off a rule the table chose when it was made", () => {
+  // Build 37: Flanking ticked at creation, then the table's prep came in
+  // with its house rules and the workshop's flags (Flanking off) replaced
+  // the table's. Prep may switch a rule on; it never switches one off.
+  const before = getCampaignById(campaign.id).gameSettings.variantRules;
+  updateGameSettings(campaign.id, { variantRules: { ...before, flanking: true, lingeringInjuries: false } });
+  const prep = getCampaignById(workshop.id).gameSettings.variantRules;
+  updateGameSettings(workshop.id, {
+    variantRules: { ...prep, flanking: false, lingeringInjuries: true, restVariant: "standard" },
+  });
+  const result = runContentImport({
+    sourceId: workshop.id,
+    campaignId: campaign.id,
+    selection: ["houseRules"],
+    houseRulesMode: "append",
+  });
+  assert.ok(!result.error, result.error);
+  const after = getCampaignById(campaign.id).gameSettings.variantRules;
+  assert.equal(after.flanking, true, "the import switched Flanking off");
+  assert.equal(after.lingeringInjuries, true, "a rule the prep switches on comes across");
+  assert.equal(after.restVariant, "gritty", "a standard rest in the prep undid the table's gritty rests");
+  updateGameSettings(workshop.id, { variantRules: prep });
+  updateGameSettings(campaign.id, { variantRules: before });
 });
 
 // ---- the map library ----

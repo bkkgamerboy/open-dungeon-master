@@ -4,6 +4,7 @@ import { resolveMonster } from "@/lib/bestiary";
 import { tableAuthors } from "@/lib/db/homebrew";
 import { rosterMonsters } from "@/lib/db/workshop-bundle-shelf";
 import { getCampaignById, updateGameSettings, type Campaign } from "@/lib/db/campaigns";
+import { mergeVariantRules } from "@/lib/schemas/game-settings";
 import { embedPendingLore } from "@/lib/db/lore";
 import { getBeat, listBeats } from "@/lib/db/workshop-beats";
 import { compileBoard, summarizeCompile, type CompiledBoard } from "@/lib/workshop/board-compile";
@@ -467,7 +468,10 @@ export function runContentImport(input: {
       counts.copied += 1;
     }
     // The variant flags travel with the prose: they are the same decision.
-    updateGameSettings(campaignId, { variantRules: source.gameSettings.variantRules });
+    // They only ever switch a rule on (mergeVariantRules): the table's own
+    // choices, made at creation, are never switched off by prep.
+    const mine = (getCampaignById(campaignId) ?? campaign).gameSettings.variantRules;
+    updateGameSettings(campaignId, { variantRules: mergeVariantRules(mine, source.gameSettings.variantRules) });
   }
 
   if (selected.has("world") && hasWorldDoc(sourceId)) {

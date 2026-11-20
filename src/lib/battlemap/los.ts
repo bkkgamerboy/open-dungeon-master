@@ -257,7 +257,7 @@ export function visibleTiles(
 export function perceivesToken(
   map: MapForVision,
   viewer: Viewer,
-  target: { x: number; y: number; movement?: "walk" | "fly" | "burrow" },
+  target: { x: number; y: number; movement?: "walk" | "fly" | "burrow" | "dive" },
   visible: Set<number>,
 ): boolean {
   if (visible.has(tileIndex(map.width, target.x, target.y))) {

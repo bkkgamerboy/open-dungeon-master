@@ -205,6 +205,7 @@ export const BOARD_ADJUDICATIONS: CatalogEntry[] = [
           { value: "walk", label: "On foot" },
           { value: "fly", label: "Flying" },
           { value: "burrow", label: "Burrowing" },
+          { value: "dive", label: "Under water" },
         ],
       },
       REASON,

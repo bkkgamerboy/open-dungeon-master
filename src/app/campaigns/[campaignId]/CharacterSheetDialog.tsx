@@ -17,7 +17,7 @@ import {
   sizeForRace,
   type DerivedPart,
 } from "@/lib/srd";
-import { attunementSlotsFor, matchArmor } from "@/lib/srd/armor";
+import { attunementSlotsFor, isWorn, matchArmor } from "@/lib/srd/armor";
 import { encumbranceFor } from "@/lib/srd/encumbrance";
 import { matchMagicItem, magicItemRiders } from "@/lib/srd/magic-items";
 import { RESOURCE_DEFS } from "@/lib/srd/class-resources";
@@ -138,7 +138,6 @@ export function CharacterSheetDialog({
     size: sizeForRace(sheet.race),
     wearer: sheet,
   });
-  const anyEquipped = sheet.equipment.some((item) => item.equipped);
   const speedNote = speedState.notes.length ? speedState.notes.join(" ") : "Their walking speed.";
   const [busy, setBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -543,7 +542,7 @@ export function CharacterSheetDialog({
                       key={item.name}
                       sheet={sheet}
                       item={item}
-                      worn={item.equipped ?? !anyEquipped}
+                      worn={isWorn(item, sheet.equipment)}
                       inCombat={inCombat}
                       myTurn={myTurn}
                       dead={dead}
