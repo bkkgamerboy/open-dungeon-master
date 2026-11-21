@@ -461,6 +461,10 @@ export function SessionView({
   // Muted by the party lead: the server refuses the send, so the box says
   // so instead of letting the player type into a wall.
   const muted = Boolean(state.members.find((member) => member.userId === meId)?.muted);
+  // One person at the table (build 38): nobody to call and nobody to pause
+  // the game for, so the voice-call button and the X-card are not shown.
+  // Companions are the DM's, not members, so a solo party of four is solo.
+  const soloTable = state.members.length <= 1;
   // An ended campaign refuses every new action (the actions route), so the
   // box says so the same way, and the story above it stays to be read.
   const ended = campaign?.status === "ended";
@@ -979,7 +983,7 @@ export function SessionView({
         title={campaign.title}
         scene={campaign.scene}
         user={me}
-        voice={voice}
+        voice={soloTable ? undefined : voice}
         dice3d={dice3d}
         onToggleDice3d={toggleDice3d}
         onCustomizeDice={openDiceLook}
@@ -1154,7 +1158,7 @@ export function SessionView({
                     speaker={speaker}
                     onSpeakerChange={setSpeaker}
                     cast={state.cast}
-                    onXCard={campaign.gameSettings?.safety?.xCard ? raiseXCard : undefined}
+                    onXCard={campaign.gameSettings?.safety?.xCard && !soloTable ? raiseXCard : undefined}
                     storyCadence={storyCadence}
                     onCaptureStory={openStoryCapture}
                     onSnoozeStory={snoozeStory}

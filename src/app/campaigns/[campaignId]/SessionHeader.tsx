@@ -150,7 +150,8 @@ export const SessionHeader = memo(function SessionHeader({
   title: string;
   scene: string;
   user: AccountMenuUser;
-  voice: ComponentProps<typeof VoiceDock>;
+  // Absent at a solo table: there is nobody to call (build 38).
+  voice?: ComponentProps<typeof VoiceDock>;
   dice3d: boolean;
   onToggleDice3d: () => void;
   // Opens the editor for the player's own dice colours.
@@ -214,7 +215,7 @@ export const SessionHeader = memo(function SessionHeader({
         {/* Every table-wide control on one brass plate; the way out and the
             account menu stay beside it as the app's own furniture. */}
         <div className="session-cluster">
-        <VoiceDock {...voice} />
+        {voice ? <VoiceDock {...voice} /> : null}
         {/* The dice menu: the dice tray (open or secret rolls) first, then
             the 3D animation switch, the player's own dice, and shake to
             roll on a phone. */}

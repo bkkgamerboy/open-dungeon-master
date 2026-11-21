@@ -39,7 +39,7 @@ import { computeSheetDerived } from "@/lib/srd";
 import { encounterCeiling, evaluateEncounter } from "@/lib/srd/encounter-math";
 import { suggestEnemies } from "@/lib/bestiary";
 import { enemyRequestSchema, resolveEnemyRequests } from "@/lib/dm/encounter-spawn";
-import { decideAmbush, rollOpeningInitiative } from "@/lib/dm/encounter-open";
+import { decideAmbush, rollOpeningInitiative, sleepersAmong } from "@/lib/dm/encounter-open";
 import { heldRollUserIds } from "@/lib/dice/held-rolls";
 import { healthState } from "@/lib/bestiary/health";
 import {
@@ -179,6 +179,25 @@ function crLabel(cr: number): string {
 
 // ---- start_encounter ----
 
+// Enemies asleep as the party attacks, marked once the fight is open: a
+// prepared fight names its enemies (Ssethra, not Spirit Naga) only after
+// start_encounter has made them, so its sleepers are found here. Surprise is
+// read action by action (can-act.ts) and the pointer passes the surprised by
+// (entryActs), so nobody has lost anything by the mark coming a moment late.
+function markAsleep(campaign: Campaign, asleep: string[]): string[] {
+  const encounter = getActiveEncounter(campaign.id);
+  if (!encounter || !asleep.length) {
+    return [];
+  }
+  const sleepers = sleepersAmong(asleep, listEnemies(encounter.id).filter((enemy) => enemy.status === "alive"));
+  if (sleepers.ids.length) {
+    encounter.surprisedIds = [...new Set([...encounter.surprisedIds, ...sleepers.ids])];
+    saveEncounter(encounter);
+    publishEncounter(campaign.id);
+  }
+  return sleepers.lines;
+}
+
 const hasAlert = (sheet: CharacterSheet) =>
   (sheet.feats ?? []).some((feat) => /^alert\b/i.test(feat.trim()));
 
@@ -187,6 +206,12 @@ const startArgsSchema = z.object({
   summary: z.string().optional(),
   surprised: z.enum(["none", "enemies", "party"]).optional(),
   ambush: z.enum(["enemies", "party"]).optional(),
+  // Enemies asleep as the party attacks (build 38). One name on its own is
+  // taken as a list of one.
+  asleep: z.preprocess(
+    (value) => (typeof value === "string" ? [value] : value),
+    z.array(z.string().max(80)).max(8).optional(),
+  ),
   scene: z.string().max(40).optional(),
   // Feet between the party and the nearest enemy as the fight opens. A
   // value that is no distance (null, "", 0 from a weak tool caller) is the
@@ -326,6 +351,11 @@ function handleStartEncounter(
     const ambush = decideAmbush(campaign, args.ambush, enemies, sheets);
     encounter.surprisedIds = ambush.surprisedIds;
     ambushLines = ambush.lines;
+  }
+  if (args.asleep?.length) {
+    const sleepers = sleepersAmong(args.asleep, enemies);
+    encounter.surprisedIds = [...new Set([...encounter.surprisedIds, ...sleepers.ids])];
+    ambushLines = [...ambushLines, ...sleepers.lines];
   }
   const partySurprised = sheets.some((sheet) => encounter.surprisedIds.includes(sheet.id));
   // Legendary pools and the lair flag (docs/vtt-parity-implementation-
@@ -1037,8 +1067,12 @@ export function applyEncounterCall(
       // The same start_encounter as above, with the roster, map and plan a
       // person prepared.
       return {
-        result: runPreparedEncounter(campaign, rawArguments, (startArguments) =>
-          applyEncounterCall(campaign, turn, "start_encounter", startArguments, sheets, sheetsById, callContext).result,
+        result: runPreparedEncounter(
+          campaign,
+          rawArguments,
+          (startArguments) =>
+            applyEncounterCall(campaign, turn, "start_encounter", startArguments, sheets, sheetsById, callContext).result,
+          (asleep) => markAsleep(campaign, asleep),
         ),
       };
     case "pc_attack": {

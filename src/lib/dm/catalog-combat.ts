@@ -86,6 +86,13 @@ export const COMBAT_ADJUDICATIONS: CatalogEntry[] = [
         help: "Overrides the ambush roll for a whole side.",
       },
       {
+        name: "asleep",
+        label: "Asleep",
+        kind: "list",
+        placeholder: "spirit naga",
+        help: "Enemies asleep when the party attacks, by name or monster, comma separated. They start surprised; those awake beside them do not.",
+      },
+      {
         name: "scene",
         label: "Ground",
         kind: "select",

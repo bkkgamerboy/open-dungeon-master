@@ -32,7 +32,14 @@ import {
   type HandTargetDetail,
 } from "@/lib/battlemap/hand-play";
 import { reactionAim, reactionCards, withReactions } from "@/lib/battlemap/hand-react";
-import { tableTurnKey, turnFromEncounter, turnPips, turnSignature } from "@/lib/battlemap/hand-table";
+import {
+  handAwayStep,
+  tableTurnKey,
+  turnFromEncounter,
+  turnPips,
+  turnSignature,
+  type HandAwayMemory,
+} from "@/lib/battlemap/hand-table";
 
 import type { TargetEdge } from "@/lib/battlemap/view-tactics";
 import { replayAnimation } from "@/lib/motion/replay";
@@ -332,17 +339,35 @@ function HandInner({
   // A new turn in the order (its round and who it rests on) that is this
   // player's: a hand that put itself away comes back out. One its player put
   // away stays so.
+  //
+  // The enemies' turns (the floor held while the DM plays them) put the hand
+  // away too, so the DM's writing can be read as it comes (build 38); it
+  // comes back when they are done and the turn is this player's. The floor
+  // and the order arrive separately, so a reopen is owed from the moment the
+  // turn moves or the enemies finish, and paid when the turn is ours.
   const turnKey = tableTurnKey(encounter);
-  const lastTurnKey = useRef("");
+  const enemyTurns = encounter.enemyTurns === true;
+  const awayMemory = useRef<HandAwayMemory>({ turnKey: "", enemyTurns: false, reopenOwed: false });
   useEffect(() => {
-    if (turnKey === lastTurnKey.current) return;
-    lastTurnKey.current = turnKey;
-    composedRef.current = false;
-    if (myTurn && readFlag(AUTO_COLLAPSED_KEY)) {
+    const step = handAwayStep(awayMemory.current, {
+      turnKey,
+      enemyTurns,
+      myTurn,
+      collapsed: readFlag(COLLAPSED_KEY),
+      autoCollapsed: readFlag(AUTO_COLLAPSED_KEY),
+    });
+    awayMemory.current = step.memory;
+    if (step.newTurn) {
+      composedRef.current = false;
+    }
+    if (step.putAway) {
+      writeFlag(AUTO_COLLAPSED_KEY, true);
+      writeFlag(COLLAPSED_KEY, true);
+    } else if (step.bringBack) {
       writeFlag(AUTO_COLLAPSED_KEY, false);
       writeFlag(COLLAPSED_KEY, false);
     }
-  }, [turnKey, myTurn]);
+  }, [turnKey, myTurn, enemyTurns]);
 
   // The one-tap End beside the pips: the end-turn route the card used.
   const endTurn = useCallback(async () => {

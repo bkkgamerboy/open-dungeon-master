@@ -31,6 +31,46 @@ function publish(campaign: Campaign, roll: ReturnType<typeof insertRoll>) {
   publishWithSeq(campaign.id, allocateSeq(campaign.id), "roll_result", { roll, source: "digital" });
 }
 
+// Enemies asleep when the party attacks them (build 38): the DM names them,
+// by name or by monster, and they are caught off guard whatever an ambush
+// roll decides for the rest. A sleeper does not notice a threat, which is
+// all surprise is (SRD 5.1, Surprise). Those awake beside them are not.
+export function sleepersAmong(
+  asleep: string[],
+  enemies: Pick<EncounterEnemy, "id" | "displayName" | "slug">[],
+): { ids: string[]; lines: string[] } {
+  const words = (text: string) => text.toLowerCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  const ids = new Set<string>();
+  const unknown: string[] = [];
+  for (const raw of asleep) {
+    const needle = words(raw);
+    if (!needle) {
+      continue;
+    }
+    const found = enemies.filter((enemy) => {
+      const name = words(enemy.displayName);
+      const monster = words(enemy.slug);
+      return name === needle || monster === needle || name.includes(needle) || monster.includes(needle) ||
+        // "Ssethra" for "Ssethra the Time-Coiled", "the naga" for "Spirit Naga"
+        needle.split(" ").filter((word) => word.length > 3 && word !== "the").some((word) =>
+          name.split(" ").includes(word) || monster.split(" ").includes(word));
+    });
+    if (found.length) {
+      found.forEach((enemy) => ids.add(enemy.id));
+    } else {
+      unknown.push(raw);
+    }
+  }
+  const sleepers = enemies.filter((enemy) => ids.has(enemy.id)).map((enemy) => enemy.displayName);
+  const lines = [
+    ...(sleepers.length
+      ? [`${sleepers.join(", ")} ${sleepers.length === 1 ? "is" : "are"} asleep and surprised.`]
+      : []),
+    ...(unknown.length ? [`No enemy in this fight answers to ${unknown.map((name) => `"${name}"`).join(", ")}; nobody else was put to sleep.`] : []),
+  ];
+  return { ids: [...ids], lines };
+}
+
 export type Ambush = { surprisedIds: string[]; lines: string[] };
 
 // The side lying in wait rolls Stealth, each creature once; every opponent

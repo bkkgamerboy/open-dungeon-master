@@ -69,6 +69,13 @@ export const runPreparedEncounterTool: ToolDef = {
           enum: ["none", "enemies", "party"],
           description: "A whole side caught off guard, as for start_encounter.",
         },
+        asleep: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 8,
+          description:
+            "Enemies asleep when the party attacks (the fight's notes or the place say they sleep and nothing has woken them), by name or monster. They start surprised and lose their first turn; those awake beside them are not.",
+        },
         distanceFeet: {
           type: "integer",
           minimum: 5,
@@ -172,6 +179,9 @@ export function runPreparedEncounter(
   campaign: Campaign,
   rawArguments: string,
   start: (rawArguments: string) => Record<string, unknown>,
+  // Marks the named enemies asleep (surprised) once the fight is open and
+  // named; returns what to tell the DM.
+  sleep?: (asleep: string[]) => string[],
 ): Record<string, unknown> {
   // A weak tool caller sends null, an array or a bare string as often as an
   // object; each reads as no arguments and earns the refusal below.
@@ -208,6 +218,11 @@ export function runPreparedEncounter(
   applyTemplateExtras(campaign, campaign.ownerUserId, template, {
     distanceFeet: typeof args.distanceFeet === "number" ? args.distanceFeet : undefined,
   });
+  // Sleepers by the names this fight gives its enemies (build 38).
+  const asleep = (Array.isArray(args.asleep) ? args.asleep : [args.asleep]).filter(
+    (name): name is string => typeof name === "string" && name.trim() !== "",
+  );
+  const sleepLines = asleep.length && sleep ? sleep(asleep.slice(0, 8)) : [];
   setTemplateCued(template.id, false);
   markTemplateRan(template.id);
   // The plan rides back with the fight: what it is worth and when it
@@ -216,6 +231,9 @@ export function runPreparedEncounter(
   return {
     ...started,
     prepared: template.name,
+    ...(sleepLines.length
+      ? { asleep: `${sleepLines.join(" ")} The server skips a sleeper's turn in the first round; narrate them waking to the attack.` }
+      : {}),
     ...(plan.length ? { plan } : {}),
     ...(mapError ? { mapNote: `Its saved map could not be used (${mapError}); the fight is on a generated one.` } : {}),
   };

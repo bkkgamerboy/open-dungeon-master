@@ -1,4 +1,5 @@
 import { getDatabase, nowIso, parseJson } from "@/lib/db/core";
+import { restedForEntry } from "@/lib/characters/rested";
 import { byName } from "@/lib/language/text-logic";
 import { createSheet, getSheetById, getSheetForUser, linkSheetToLibrary, listSheets, listSheetsForUser } from "@/lib/db/sheets";
 import { adaptSheetToLevel } from "@/lib/characters/adapt";
@@ -367,8 +368,10 @@ export function instantiateIntoCampaign(
       problems: admitted.problems,
     };
   }
-  // A character entering at its own level brings the experience it has.
-  return createSheet(campaignId, userId, level, admitted.sheet, characterId, {
+  // A character entering at its own level brings the experience it has. It
+  // enters rested, whatever it spent at the end of its last story (build 38,
+  // src/lib/characters/rested.ts).
+  return createSheet(campaignId, userId, level, restedForEntry(admitted.sheet), characterId, {
     xp: character.level === level ? character.xp : 0,
   });
 }

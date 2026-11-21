@@ -129,7 +129,9 @@ export const DEFAULT_DRAFT: CampaignDraft = {
   relationships: "on",
   romance: "on",
   variantRules: {
-    flanking: false,
+    // On from the start (build 38): the optional flanking rule is how this
+    // table plays. A campaign's own Setup can still switch it off.
+    flanking: true,
     criticalFumbles: false,
     encumbrance: false,
     lingeringInjuries: false,

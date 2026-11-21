@@ -1,4 +1,5 @@
 import { emptyTurnLine, type EmptyTurnPlayer } from "@/lib/dm/empty-turn";
+import { publishTitleCard } from "@/lib/dm/scene-state";
 import { manualTraits } from "@/lib/dm/monster-traits";
 import { coordinationForPrompt } from "@/lib/dm/coordination";
 import { clipKeepingEnds } from "@/lib/dm/ask-logic";
@@ -2200,6 +2201,11 @@ export function handleLocationCall(
     // line on record (an imported map's town): the model is handed the line.
     knownArrival =
       movedToNewLocation && sameRow && !onRecord?.visited && !written && !passed && onRecord.layoutDescription.trim() !== "";
+    // A place the party has never been: its name goes up on every screen,
+    // full screen, as a chapter's does (build 38).
+    if (movedToNewLocation && !onRecord?.visited) {
+      publishTitleCard(campaign.id, { title: location.name.slice(0, 60), tone: "gold" });
+    }
     // Somewhere unwritten, with the world simulation on, gets its people
     // before the model narrates it (docs/vtt-parity-implementation-plan.md
     // 12.1). Anywhere already peopled is left as it was.

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { giveStartingMule } from "@/lib/dm/party-pack";
 import { campaignCreationRefusal, canCreateCampaigns } from "@/lib/shared-host";
 import { currentUser, unauthorized } from "@/lib/auth";
 import { createCampaign, listCampaignsForUser, publicCampaign, type Campaign } from "@/lib/db/campaigns";
@@ -79,5 +80,6 @@ export async function POST(request: Request) {
     gameSettings.ttsEnabled = await narrationAvailable();
   }
   const campaign = createCampaign(user.id, { ...parsed.data, gameSettings });
+  giveStartingMule(campaign.id);
   return Response.json({ campaign: publicCampaign(campaign) }, { status: 201 });
 }

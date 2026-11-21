@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { restedForEntry } from "@/lib/characters/rested";
 import { rollCard } from "@/lib/dm/roll-card";
 import { allocateSeq, campaignSeats, countPartySlots, type Campaign } from "@/lib/db/campaigns";
 import { createSheet, listSheets, markSheetAsCompanion } from "@/lib/db/sheets";
@@ -417,7 +418,15 @@ export function finalizeNewCompanion(
   libraryCharacterId: string | null = null,
 ): { sheet: CharacterSheet; hadEncounter: boolean } {
   const botUser = createCompanionUser(input.name);
-  const created = createSheet(campaign.id, botUser.id, level, input, libraryCharacterId);
+  // One brought in from the library enters rested, as a player's hero does
+  // (build 38, src/lib/characters/rested.ts).
+  const created = createSheet(
+    campaign.id,
+    botUser.id,
+    level,
+    libraryCharacterId ? restedForEntry(input) : input,
+    libraryCharacterId,
+  );
   const sheet = markSheetAsCompanion(created.id, kind, personality) ?? created;
   publishPersisted(campaign.id, "sheet_updated", { sheet });
   // A companion the party once travelled with can be written back in; every

@@ -11,10 +11,21 @@ export function publishSceneState(campaignId: string, scene: SceneState) {
 
 let cardCounter = 0;
 
+// The same title twice in a few seconds is one card: an arrival puts the
+// place's name up on its own (build 38), and a DM who also calls show_title
+// for it should not have the table watch it twice.
+const REPEAT_MS = 30_000;
+const lastCard = new Map<string, TitleCard>();
+const sameTitle = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
 export function publishTitleCard(
   campaignId: string,
   card: Omit<TitleCard, "id" | "at"> & { id?: string },
 ): TitleCard {
+  const last = lastCard.get(campaignId);
+  if (last && !card.id && Date.now() - last.at < REPEAT_MS && sameTitle(last.title, card.title)) {
+    return last;
+  }
   cardCounter = (cardCounter + 1) % 100_000;
   const full: TitleCard = {
     id: card.id ?? `title-${Date.now().toString(36)}-${cardCounter.toString(36)}`,
@@ -25,6 +36,7 @@ export function publishTitleCard(
     at: Date.now(),
   };
   publishPersisted(campaignId, "title_card", full);
+  lastCard.set(campaignId, full);
   return full;
 }
 

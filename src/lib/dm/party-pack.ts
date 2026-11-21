@@ -335,6 +335,22 @@ export function buyAnimal(
   return { ok: true, message, party: next };
 }
 
+// Every party sets out with a mule (build 38): a pack animal is part of the
+// kit, not a purchase each new campaign has to make again. Given once, as
+// the campaign is made, quietly (there is no story yet to note it in); a
+// party that already leads an animal keeps what it has.
+export function giveStartingMule(campaignId: string): void {
+  const party = getParty(campaignId);
+  if (party.packAnimals.length || party.animalsLeftAt) {
+    return;
+  }
+  const animal = newAnimal("mule", "Mule");
+  if ("error" in animal) {
+    return;
+  }
+  updateParty(campaignId, (current) => ({ ...current, packAnimals: [...current.packAnimals, animal] }));
+}
+
 // One the story gives them (a farmer's thanks, a bandit's abandoned mule).
 export function gainAnimal(campaign: Campaign, input: { kind: string; name: string; reason?: string }): PackResult {
   const party = getParty(campaign.id);

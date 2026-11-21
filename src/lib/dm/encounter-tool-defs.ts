@@ -58,6 +58,13 @@ export const startEncounterTool: ToolDef = {
           description:
             "A whole side the story has already decided is caught off guard, overriding ambush. Default 'none'.",
         },
+        asleep: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 8,
+          description:
+            "Enemies asleep when the party attacks (the story or the place's notes say they sleep and nothing has woken them), by name or monster. They start the fight surprised and lose their first turn, whatever ambush decides for the rest; those awake beside them are not.",
+        },
         scene: {
           type: "string",
           enum: sceneIds(),

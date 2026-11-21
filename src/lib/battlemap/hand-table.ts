@@ -120,3 +120,37 @@ export function tableTurnKey(encounter: Pick<PublicEncounter, "round" | "order" 
   const row = encounter.order[currentOrderIndex(encounter.order, encounter.turnIndex, acting)];
   return `${encounter.round}:${acting.id || acting.name}${row?.reflex ? ":reflex" : ""}`;
 }
+
+// When the Hand puts itself away and brings itself back (build 24, build 38),
+// as a step the component takes each time the table changes. A new turn in
+// the order, or the enemies' turns ending, owes a reopen, paid once the turn
+// is this player's (the floor and the order arrive separately, so the two
+// rarely change together). The enemies' turns put the hand away so the DM's
+// writing can be read, unless its player had already put it away. Only a
+// hand that put itself away (autoCollapsed) comes back on its own.
+export type HandAwayMemory = { turnKey: string; enemyTurns: boolean; reopenOwed: boolean };
+
+export function handAwayStep(
+  memory: HandAwayMemory,
+  now: { turnKey: string; enemyTurns: boolean; myTurn: boolean; collapsed: boolean; autoCollapsed: boolean },
+): { memory: HandAwayMemory; newTurn: boolean; putAway: boolean; bringBack: boolean } {
+  let { reopenOwed } = memory;
+  const newTurn = now.turnKey !== memory.turnKey;
+  if (newTurn) {
+    reopenOwed = true;
+  }
+  let putAway = false;
+  if (now.enemyTurns !== memory.enemyTurns) {
+    if (now.enemyTurns) {
+      putAway = !now.collapsed;
+    } else {
+      reopenOwed = true;
+    }
+  }
+  let bringBack = false;
+  if (reopenOwed && now.myTurn && !now.enemyTurns) {
+    reopenOwed = false;
+    bringBack = now.autoCollapsed;
+  }
+  return { memory: { turnKey: now.turnKey, enemyTurns: now.enemyTurns, reopenOwed }, newTurn, putAway, bringBack };
+}

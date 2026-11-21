@@ -9,8 +9,9 @@ import type { TitleCard } from "@/lib/scene/state";
 // The title card (docs/vtt-parity-implementation-plan.md section 2.4): a
 // chapter name, a fight's opening line or a dawn, in display type over a
 // dark scrim with a rule in the card's tone. In over --dur-scene, held for
-// --dur-linger, out over --dur-scene; on reduced motion a plain toast for
-// the same span. Reports itself shown so the stream drops it.
+// --dur-linger, out over --dur-scene; on reduced motion the same full-screen
+// card, standing still, for the same span. Reports itself shown so the
+// stream drops it.
 //
 // The entrance is the battle announce ("Rolls and Effects" mockup 5a): the
 // title is carved (eight bronze layers under a gradient face), flies in from
@@ -108,20 +109,10 @@ export function SceneTitle({
     return null;
   }
 
-  if (reduced) {
-    return (
-      <div
-        role="status"
-        className="pointer-events-none fixed inset-x-0 top-16 z-[70] flex justify-center px-4"
-      >
-        <div className="rounded-lg border border-stone-700 bg-stone-950/95 px-4 py-2 text-center shadow-elev-2">
-          <p className="font-display text-lg text-stone-100">{card.title}</p>
-          {card.subtitle ? <p className="text-xs text-stone-400">{card.subtitle}</p> : null}
-        </div>
-      </div>
-    );
-  }
-
+  // A phone that asks for less motion still gets the whole card, full
+  // screen, as a still (build 38): motion-app.css stops the fly-in, the
+  // breathing and the rules, and hides the ring and the sparks. It used to
+  // be a small box at the top, so a new place passed almost unseen.
   return (
     <div
       role="status"
