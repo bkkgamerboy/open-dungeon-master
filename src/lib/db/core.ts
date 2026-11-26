@@ -2250,6 +2250,19 @@ function ensureSchema(db: SqliteDatabase) {
   // such owner as the DM. Idempotent: a repaired row no longer matches.
   repairWorkshopDmSeats(db);
 
+  // Living World now defaults to off (game-settings.ts). One-time: switch it
+  // off on every campaign made while it defaulted on, guarded by an
+  // app_settings marker so a table that turns it back on afterwards keeps it.
+  const livingWorldMarker = db
+    .prepare(`SELECT key FROM app_settings WHERE key = 'living_world_off_done'`)
+    .get();
+  if (!livingWorldMarker) {
+    switchLivingWorldOff(db);
+    db.prepare(
+      `INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?)`,
+    ).run("living_world_off_done", "true", new Date().toISOString());
+  }
+
   // Connected agents (docs/archive/harness-mcp-plan.md 7): a player's own agent
   // session (Claude Code, Codex, any MCP client) acting as that player over
   // /api/mcp. Only the token's hash is kept, the same rule as sessions.
@@ -2692,6 +2705,38 @@ export function repairWorkshopDmSeats(db: SqliteDatabase): number {
     repaired += 1;
   }
   return repaired;
+}
+
+// Switches Living World (gameSettings.worldSimulation) off on every
+// campaign, leaving every other setting alone. Workshops already hold it
+// off. Exported so scripts/test-living-world-off.mjs can drive it against
+// rows written with it on. Returns how many rows changed.
+export function switchLivingWorldOff(db: SqliteDatabase): number {
+  const rows = db
+    .prepare(`SELECT id, game_settings_json FROM campaigns`)
+    .all() as Array<{ id: string; game_settings_json: string | null }>;
+  const update = db.prepare(`UPDATE campaigns SET game_settings_json = ? WHERE id = ?`);
+  let changed = 0;
+  for (const row of rows) {
+    let settings: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(row.game_settings_json ?? "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        continue;
+      }
+      settings = parsed as Record<string, unknown>;
+    } catch {
+      // Unreadable settings parse to the defaults, which now say off.
+      continue;
+    }
+    if (settings.worldSimulation === false) {
+      continue;
+    }
+    settings.worldSimulation = false;
+    update.run(JSON.stringify(settings), row.id);
+    changed += 1;
+  }
+  return changed;
 }
 
 function backfillSheetPortraits(db: SqliteDatabase) {

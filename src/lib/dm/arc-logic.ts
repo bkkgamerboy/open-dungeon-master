@@ -1494,6 +1494,11 @@ function cloneArc(arc: StoryArc): StoryArc {
 // indices and unknown ids are ignored, and additions are capped per refresh.
 export function applyArcDelta(arc: StoryArc, delta: ArcDelta): StoryArc {
   const next = cloneArc(arc);
+  // A prepared adventure keeps its script: the chapter refresh may tick,
+  // skip and annotate its beats and update the cast's notes, but it adds no
+  // side threads, planned moments or recurring people of its own, and it
+  // never rewrites a beat that came from a storyboard card.
+  const prepared = arcIsPrepared(arc);
 
   for (const beatNumber of delta.beatsDone) {
     const beat = next.beats[beatNumber - 1];
@@ -1523,7 +1528,7 @@ export function applyArcDelta(arc: StoryArc, delta: ArcDelta): StoryArc {
   const rewriteAct = activeAfter ? activeAfter.act : next.acts;
   for (const rewrite of (delta.beatRewrites ?? []).slice(0, MAX_BEAT_REWRITES)) {
     const beat = next.beats[rewrite.beat - 1];
-    if (beat && (beat.status === "pending" || beat.status === "active") && beat.act === rewriteAct) {
+    if (beat && !beat.cardId && (beat.status === "pending" || beat.status === "active") && beat.act === rewriteAct) {
       beat.text = rewrite.text;
     }
   }
@@ -1558,7 +1563,7 @@ export function applyArcDelta(arc: StoryArc, delta: ArcDelta): StoryArc {
     }
   }
 
-  for (const raw of delta.newSubArcs.slice(0, MAX_NEW_SUB_ARCS)) {
+  for (const raw of prepared ? [] : delta.newSubArcs.slice(0, MAX_NEW_SUB_ARCS)) {
     next.subArcs.push({
       id: nextId("sa", next.subArcs),
       name: raw.name,
@@ -1603,13 +1608,17 @@ export function applyArcDelta(arc: StoryArc, delta: ArcDelta): StoryArc {
     }
   }
 
-  appendCast(next, delta.newCast.slice(0, MAX_NEW_CAST));
+  if (!prepared) {
+    appendCast(next, delta.newCast.slice(0, MAX_NEW_CAST));
+  }
   while (next.cast.length > MAX_CAST) {
     const gone = next.cast.findIndex((npc) => npc.status === "gone");
     next.cast.splice(gone >= 0 ? gone : 0, 1);
   }
 
-  appendEvents(next, delta.newEvents.slice(0, MAX_NEW_EVENTS));
+  if (!prepared) {
+    appendEvents(next, delta.newEvents.slice(0, MAX_NEW_EVENTS));
+  }
 
   next.worldArcs = applyWorldArcUpdates(next.worldArcs, delta.worldArcUpdates ?? []);
 
@@ -1979,6 +1988,31 @@ export function arcExhausted(arc: StoryArc): boolean {
   return arc.beats.every((beat) => beat.status === "done" || beat.status === "skipped");
 }
 
+// A prepared adventure: the act in play was compiled from a storyboard (a
+// workshop or an imported pack), so its beats carry the cards they came
+// from. Those beats are the script, not a loose guideline, and the DM fills
+// only small gaps rather than inventing quests, dungeons or clue trails of
+// its own. Judged on the act in play (the [NOW] beat's, or the last act once
+// the arc is played out), so a pack added as the next act of a generated
+// saga steers as prepared while it runs, and a generated act after it does
+// not.
+export function arcIsPrepared(arc: StoryArc): boolean {
+  if (!arc.beats.length) {
+    return arc.events.some((event) => Boolean(event.cardId));
+  }
+  const active = arc.beats.find((beat) => beat.status === "active");
+  const act = active ? active.act : arc.beats[arc.beats.length - 1].act;
+  return arc.beats.some((beat) => beat.act === act && Boolean(beat.cardId));
+}
+
+// The steering rule for a prepared adventure. Played for real (Deicide,
+// Nov 2026): told to improvise freely on the way to each beat, the DM spent
+// an hour of a pack that has no sewers in a sewer it invented, chasing a
+// trail of red wool, and later sent thugs after "the network information"
+// the moment a player said he meant to take the network down.
+export const PREPARED_ARC_RULE =
+  "This campaign runs a PREPARED adventure: the beats, planned events, places, people and fights below and in the prepared material are the script. Run what it describes and steer every scene toward the [NOW] beat. Fill only small gaps (a passer-by's name, the look of a room, a minor NPC's line, a shopkeeper's price); never invent dungeons, sewers, side quests, clue trails, factions, villains, ambushes or attackers the prepared material does not have. When the party wanders off the script, or a player states a plan or goal the adventure does not cover (\"we'll take down the network\"), that is not a request for a new quest: resolve it briefly inside the current scene (a sentence or two, or one check) and turn the scene back toward the [NOW] beat. Routine travel, searching and barriers with nothing prepared in them pass in a sentence.";
+
 const BEAT_MARKERS: Record<BeatStatus, string> = {
   done: "[done]",
   active: "[NOW]",
@@ -2008,8 +2042,11 @@ export function renderArcForPrompt(arc: StoryArc, cues?: SceneCues): string {
 // without them events order by act hint alone, as the refresh passes do.
 export function renderArcPrompt(arc: StoryArc, cues?: SceneCues): { text: string; trace: ArcTrace } {
   const trace: ArcTrace = { events: [], beats: { shown: 0, total: arc.beats.length }, chars: 0, budgetChars: 0 };
+  const steering = arcIsPrepared(arc)
+    ? `DM story arc (secret; never reveal, quote, or rush it). ${PREPARED_ARC_RULE}`
+    : "DM story arc (secret; steer scenes toward the [NOW] beat while improvising freely on the way there; never reveal, quote, or rush it).";
   const lines = [
-    "DM story arc (secret; steer scenes toward the [NOW] beat while improvising freely on the way there; never reveal, quote, or rush it). When your narration actually accomplishes the [NOW] beat, call complete_beat in that same reply. A beat listed with waypoints cannot complete until every one is ticked; the server ticks them from your move_party, update_location, set_npc, npc_reaction, social_check, grant_item, buy_item, tick_objective and end_encounter calls, so use those tools when the party reaches a place, meets a person, gains a thing, finishes an objective or wins a fight, and pass the step's number as `waypoint` on the call that accomplishes it, whatever you call the place, person or thing:",
+    `${steering} When your narration actually accomplishes the [NOW] beat, call complete_beat in that same reply. A beat listed with waypoints cannot complete until every one is ticked; the server ticks them from your move_party, update_location, set_npc, npc_reaction, social_check, grant_item, buy_item, tick_objective and end_encounter calls, so use those tools when the party reaches a place, meets a person, gains a thing, finishes an objective or wins a fight, and pass the step's number as \`waypoint\` on the call that accomplishes it, whatever you call the place, person or thing:`,
     `Premise: ${arc.premise}`,
   ];
   if (arc.stakes) {

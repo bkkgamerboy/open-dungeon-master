@@ -151,8 +151,10 @@ export const gameSettingsSchema = z.object({
   midGameJoinOpen: z.boolean().default(false),
   // The living-world engines: off-screen world arcs advancing on background
   // dice, surprise/encounter sparks, and NPC goal simulation during
-  // timeskips. Off preserves pre-engine behavior exactly.
-  worldSimulation: z.boolean().default(true),
+  // timeskips. Off preserves pre-engine behavior exactly. Off by default
+  // since build 39: left on, its sparks and arcs layered invented threads
+  // over the story that went in circles; a table can still switch it on.
+  worldSimulation: z.boolean().default(false),
   // After each DM narration, block do and say for everyone until the party
   // lead opens responses. OOC and lead directions stay available.
   holdSubmissions: z.boolean().default(false),

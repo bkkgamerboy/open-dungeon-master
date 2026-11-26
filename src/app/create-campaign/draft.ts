@@ -118,7 +118,7 @@ export const DEFAULT_DRAFT: CampaignDraft = {
   presentation: "plain",
   multiCharacter: "off",
   multiclassingEnabled: true,
-  worldSimulation: true,
+  worldSimulation: false,
   inventoryApprovals: false,
   vitalsApprovals: false,
   midGameJoinOpen: false,
